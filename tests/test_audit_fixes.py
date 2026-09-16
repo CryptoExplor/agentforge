@@ -296,7 +296,7 @@ def test_idempotency_replay_and_conflict_cover_the_mutating_flow(client):
         client,
         executor,
         "GET",
-        f"/api/v1/inference/{inference.json()["session_id"]}",
+        f'/api/v1/inference/{inference.json()["session_id"]}',
         {},
         include_idempotency=False,
     )
