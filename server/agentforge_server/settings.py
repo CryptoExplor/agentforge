@@ -17,6 +17,12 @@ class Settings:
     enable_mock_faucet: bool = os.getenv("AGENTFORGE_ENABLE_MOCK_FAUCET", "false").lower() in {"1", "true", "yes"}
     technocore_base_url: str = os.getenv("AGENTFORGE_TECHNOCORE_BASE_URL", "https://technocore.chat").rstrip("/")
     server_name: str = os.getenv("AGENTFORGE_SERVER_NAME", "AgentForge Reference Exchange")
+    # Settlement and deployment mode are server-derived, not client-selected.
+    # MVP only supports mock provider with local test assets.
+    settlement_provider: str = os.getenv("AGENTFORGE_SETTLEMENT_PROVIDER", "mock").lower()
+    deployment_mode: str = os.getenv("AGENTFORGE_DEPLOYMENT_MODE", "local").lower()
+    # Explicit allow-list for local mock ledger; FLOP and other real assets are rejected.
+    allowed_mock_assets: tuple[str, ...] = ("MOCK", "TEST_CREDIT")
 
 
 settings = Settings()

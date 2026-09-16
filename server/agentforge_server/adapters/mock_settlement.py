@@ -38,15 +38,41 @@ from ..services import (
 )
 
 
+ALLOWED_MOCK_ASSETS = {"MOCK", "TEST_CREDIT"}
+
+
+def _allowed_assets() -> set[str]:
+    try:
+        from ..settings import settings
+
+        allowed = getattr(settings, "allowed_mock_assets", ALLOWED_MOCK_ASSETS)
+        return {str(a).upper() for a in allowed}
+    except Exception:
+        return ALLOWED_MOCK_ASSETS
+
+
 class MockSettlementProvider:
-    """Local mock ledger - the only provider in the pre-testnet MVP."""
+    """Local mock ledger - the only provider in the pre-testnet MVP.
+
+    Explicitly rejects FLOP and any non-local test asset. Only MOCK and
+    TEST_CREDIT are accepted. This prevents treating mock credits as official
+    FLOP activity and keeps provider selection server-derived.
+    """
 
     def fund(self, db: Session, task: Task) -> Escrow | None:
         economics = task.economics or {}
         reward = economics.get("reward") or {}
         deposit = economics.get("security_deposit") or {}
         inference = economics.get("inference_budget") or {}
-        asset = str(reward.get("asset", "MOCK"))
+        asset = str(reward.get("asset", "MOCK")).upper()
+
+        # Server-derived asset guardrail: local mock ledger only.
+        allowed = _allowed_assets()
+        if asset not in allowed:
+            raise ValueError(
+                f"asset '{asset}' is not supported by mock settlement provider; "
+                f"only {', '.join(sorted(allowed))} are allowed in MVP"
+            )
 
         amounts = [
             dec(reward.get("amount", "0")),
@@ -54,7 +80,7 @@ class MockSettlementProvider:
             dec(inference.get("amount", "0")),
         ]
         for item, amount in [(deposit, amounts[1]), (inference, amounts[2])]:
-            if amount > ZERO and str(item.get("asset", asset)) != asset:
+            if amount > ZERO and str(item.get("asset", asset)).upper() != asset:
                 raise ValueError("all funded MVP escrow amounts must use the reward asset")
 
         total = sum(amounts, ZERO)
