@@ -48,13 +48,34 @@ _provider: SettlementProvider | None = None
 
 
 def get_settlement_provider() -> SettlementProvider:
-    """Return the active settlement provider (mock by default)."""
+    """Return the active settlement provider (mock by default).
+
+    Provider selection is server-derived from settings, not client requests.
+    MVP only supports 'mock'; any other value raises at call time to avoid
+    silent fallback to mock when a real provider is expected.
+    """
     global _provider
     if _provider is None:
+        from .settings import settings
+
+        provider_name = getattr(settings, "settlement_provider", "mock").lower()
+        if provider_name not in {"mock", "local"}:
+            # In MVP we only have mock; future adapters will be gated behind
+            # explicit feature flags and official specs.
+            raise RuntimeError(
+                f"settlement provider '{provider_name}' is not enabled in MVP; use 'mock'"
+            )
         from .adapters.mock_settlement import MockSettlementProvider
 
         _provider = MockSettlementProvider()
     return _provider
+
+
+def get_deployment_mode() -> str:
+    """Return server-derived deployment mode (local, testnet, mainnet, etc)."""
+    from .settings import settings
+
+    return getattr(settings, "deployment_mode", "local")
 
 
 def set_settlement_provider(provider: SettlementProvider) -> None:

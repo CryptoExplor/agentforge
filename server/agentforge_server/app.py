@@ -419,6 +419,8 @@ def create_app() -> FastAPI:
             from .services import ensure_account
 
             ensure_account(db, body.did, "MOCK", "1000")
+            # Also fund TEST_CREDIT for local test asset coverage
+            ensure_account(db, body.did, "TEST_CREDIT", "1000")
 
         challenge.used = True
         add_audit(
