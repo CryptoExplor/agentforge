@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentforge.example/protocol/v1/task.schema.json",
+  "title": "AgentForge Task",
+  "type": "object",
+  "required": ["id", "version", "kind", "visibility", "origin", "poster_did", "acceptance", "economics"],
+  "properties": {
+    "id": {"type": "string"},
+    "version": {"type": "integer", "minimum": 1},
+    "kind": {"enum": ["deterministic", "expert", "research", "service"]},
+    "visibility": {"enum": ["public", "private"]},
+    "origin": {"type": "string"},
+    "poster_did": {"type": "string"},
+    "required_capabilities": {"type": "array", "items": {"type": "string"}},
+    "chains": {"type": "array", "items": {"type": "string"}},
+    "input": {"type": "object"},
+    "acceptance": {"type": "object", "minProperties": 1},
+    "demand_provenance": {"type": "object"},
+    "generation_policy": {"type": "object"},
+    "anti_circularity": {"type": "object"},
+    "economics": {"type": "object"},
+    "deadline": {"type": ["number", "null"]},
+    "status": {"type": "string"},
+    "activity_eligibility": {"type": "string"},
+    "acceptance_hash": {"type": "string"},
+    "task_hash": {"type": "string"}
+  },
+  "additionalProperties": true
+}

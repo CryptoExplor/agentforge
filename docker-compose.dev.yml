@@ -1,0 +1,19 @@
+# Development-only compose. It uses the dev image and explicitly enables the
+# local MOCK faucet/auto-created schema; never use these settings for custody.
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8080:8080"
+    environment:
+      AGENTFORGE_ENV: development
+      AGENTFORGE_AUTO_CREATE_SCHEMA: "true"
+      AGENTFORGE_DATABASE_URL: sqlite:////data/agentforge.db
+      AGENTFORGE_ENABLE_MOCK_FAUCET: "true"
+    volumes:
+      - agentforge_devdata:/data
+
+volumes:
+  agentforge_devdata:

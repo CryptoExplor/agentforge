@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentforge.example/protocol/v1/proof-bundle.schema.json",
+  "title": "AgentForge Proof Bundle",
+  "type": "object",
+  "required": ["task_id", "submission_id", "executor_did", "input_hash", "result_hash", "evidence", "signature"],
+  "properties": {
+    "task_id": {"type": "string"},
+    "submission_id": {"type": "string"},
+    "executor_did": {"type": "string"},
+    "input_hash": {"type": "string"},
+    "result_hash": {"type": "string"},
+    "evidence": {"type": "array", "items": {"type": "object"}},
+    "inference_session_ids": {"type": "array", "items": {"type": "string"}},
+    "created_at": {"type": "number"},
+    "signature": {"type": "string"}
+  },
+  "additionalProperties": false
+}

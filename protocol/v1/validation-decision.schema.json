@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentforge.example/protocol/v1/validation-decision.schema.json",
+  "title": "AgentForge Validation Decision",
+  "type": "object",
+  "required": [
+    "decision_id",
+    "submission_id",
+    "validator_did",
+    "decision",
+    "policy",
+    "checks",
+    "signature"
+  ],
+  "properties": {
+    "decision_id": {
+      "type": "string"
+    },
+    "submission_id": {
+      "type": "string"
+    },
+    "validator_did": {
+      "type": "string"
+    },
+    "decision": {
+      "enum": [
+        "VERIFIED",
+        "REJECTED",
+        "PARTIAL",
+        "SLASHED"
+      ]
+    },
+    "policy": {
+      "type": "string"
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "deterministic_checks": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "reason_codes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "settlement": {
+      "type": "object"
+    },
+    "evidence_hash": {
+      "type": "string"
+    },
+    "signature": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

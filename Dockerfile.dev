@@ -1,0 +1,24 @@
+# Local development image: auto-created SQLite/PostgreSQL schema and mock faucet
+# are intentionally isolated from the production image/configuration.
+FROM python:3.13-slim
+
+WORKDIR /app
+COPY pyproject.toml README.md /app/
+COPY server /app/server
+COPY sdk /app/sdk
+COPY protocol /app/protocol
+COPY migrations /app/migrations
+COPY alembic.ini /app/
+COPY web /app/web
+COPY AGENTFORGE_ARCHITECTURE.md ANTIGRAVITY_IMPLEMENTATION_BRIEF.md SECURITY.md /app/
+
+RUN pip install --no-cache-dir -e '.[dev,postgres]'
+
+ENV AGENTFORGE_ENV=development
+ENV AGENTFORGE_AUTO_CREATE_SCHEMA=true
+ENV AGENTFORGE_ENABLE_MOCK_FAUCET=true
+ENV AGENTFORGE_HOST=0.0.0.0
+ENV AGENTFORGE_PORT=8080
+EXPOSE 8080
+
+CMD ["uvicorn", "agentforge_server.app:app", "--app-dir", "server", "--host", "0.0.0.0", "--port", "8080"]

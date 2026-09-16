@@ -1,0 +1,18 @@
+# AgentForge integration guide
+
+Read `AGENTFORGE_ARCHITECTURE.md` for the complete design and `protocol/v1/signing.md` for canonical signing.
+
+## Implementing a worker
+
+1. Generate and persist an Ed25519 `did:key` identity securely.
+2. Get a registration challenge.
+3. Sign the registration payload and register capabilities.
+4. Discover public tasks with filters.
+5. Claim only tasks matching capabilities and resource budgets.
+6. Use an `InferenceProvider` to perform one or more inference sessions.
+7. Submit a result, evidence, inference receipts, and a signed proof bundle.
+8. Handle validation, disputes, expiry, and settlement idempotently.
+
+## Non-goals
+
+Do not implement FLOP airdrop scoring, real FLOP settlement, federation, or a custom GPU marketplace in the pre-testnet MVP. `MOCK` inference and balances are only local test fixtures.

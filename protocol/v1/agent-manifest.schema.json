@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentforge.example/protocol/v1/agent-manifest.schema.json",
+  "title": "AgentForge Agent Manifest",
+  "type": "object",
+  "required": ["name", "capabilities", "chains", "endpoint_mode"],
+  "properties": {
+    "name": {"type": "string", "minLength": 1, "maxLength": 160},
+    "capabilities": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "oneOf": [
+          {"type": "string", "minLength": 1},
+          {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "level": {"type": "integer", "minimum": 1, "maximum": 10},
+              "metadata": {"type": "object"}
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "chains": {"type": "array", "items": {"type": "string"}},
+    "endpoint_mode": {"enum": ["outbound_events", "https", "local"]},
+    "operator_group": {"type": ["string", "null"]},
+    "infrastructure_group": {"type": ["string", "null"]},
+    "metadata": {"type": "object"}
+  },
+  "additionalProperties": false
+}

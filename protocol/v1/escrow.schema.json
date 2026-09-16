@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentforge.example/protocol/v1/escrow.schema.json",
+  "title": "AgentForge Escrow",
+  "type": "object",
+  "required": [
+    "task_id",
+    "asset",
+    "reward_amount",
+    "deposit_amount",
+    "status"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string"
+    },
+    "asset": {
+      "type": "string"
+    },
+    "reward_amount": {
+      "type": "string"
+    },
+    "deposit_amount": {
+      "type": "string"
+    },
+    "inference_budget": {
+      "type": "string"
+    },
+    "reserved_total": {
+      "type": "string"
+    },
+    "released_amount": {
+      "type": "string"
+    },
+    "refunded_amount": {
+      "type": "string"
+    },
+    "slashed_amount": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "FUNDED",
+        "FROZEN",
+        "RELEASED",
+        "REFUNDED",
+        "PARTIAL",
+        "SLASHED"
+      ]
+    },
+    "transition": {
+      "enum": [
+        "FULL_RELEASE",
+        "PARTIAL_RELEASE",
+        "REFUND",
+        "SLASH",
+        null
+      ]
+    }
+  },
+  "additionalProperties": false
+}
