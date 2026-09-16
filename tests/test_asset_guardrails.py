@@ -196,3 +196,39 @@ def test_deployment_and_settlement_mode_are_server_derived(client):
     from agentforge_server.adapters.mock_settlement import MockSettlementProvider
 
     assert isinstance(get_settlement_provider(), MockSettlementProvider)
+
+
+def test_unsupported_settlement_provider_raises(monkeypatch):
+    from agentforge_server.settlement import reset_settlement_provider
+
+    monkeypatch.setattr(settings, "settlement_provider", "flop_onchain")
+    reset_settlement_provider()
+    try:
+        with pytest.raises(RuntimeError, match="not enabled in MVP"):
+            get_settlement_provider()
+    finally:
+        reset_settlement_provider()
+
+
+def test_zero_reward_task_with_test_credit_deposit(client):
+    poster = AgentIdentity.generate()
+    register(client, poster)
+    payload = {
+        "kind": "research",
+        "visibility": "public",
+        "origin": "research",
+        "required_capabilities": [],
+        "chains": ["base"],
+        "input": {"question": "deposit in test credit"},
+        "acceptance": {"required_outputs": ["answer"]},
+        "demand_provenance": {"type": "research_question", "level": 3},
+        "generation_policy": {"minimum_provenance_level": 1},
+        "economics": {
+            "mode": "REPUTATION",
+            "security_deposit": {"amount": "5", "asset": "TEST_CREDIT"},
+        },
+    }
+    resp = signed_request(client, poster, "POST", "/api/v1/tasks", payload)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["escrow"]["asset"] == "TEST_CREDIT"
+    assert resp.json()["escrow"]["deposit_amount"] == "5"

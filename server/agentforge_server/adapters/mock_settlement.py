@@ -64,22 +64,33 @@ class MockSettlementProvider:
         reward = economics.get("reward") or {}
         deposit = economics.get("security_deposit") or {}
         inference = economics.get("inference_budget") or {}
-        asset = str(reward.get("asset", "MOCK")).upper()
-
         # Server-derived asset guardrail: local mock ledger only.
         allowed = _allowed_assets()
-        if asset not in allowed:
-            raise ValueError(
-                f"asset '{asset}' is not supported by mock settlement provider; "
-                f"only {', '.join(sorted(allowed))} are allowed in MVP"
-            )
+        for item in (reward, deposit, inference):
+            item_asset = str(item.get("asset") or "").upper()
+            if item_asset and item_asset not in allowed:
+                raise ValueError(
+                    f"asset '{item_asset}' is not supported by mock settlement provider; "
+                    f"only {', '.join(sorted(allowed))} are allowed in MVP"
+                )
 
         amounts = [
             dec(reward.get("amount", "0")),
             dec(deposit.get("amount", "0")),
             dec(inference.get("amount", "0")),
         ]
-        for item, amount in [(deposit, amounts[1]), (inference, amounts[2])]:
+
+        # Determine primary asset from the first funded component, defaulting to reward asset or MOCK
+        if amounts[0] > ZERO:
+            asset = str(reward.get("asset", "MOCK")).upper()
+        elif amounts[1] > ZERO:
+            asset = str(deposit.get("asset", "MOCK")).upper()
+        elif amounts[2] > ZERO:
+            asset = str(inference.get("asset", "MOCK")).upper()
+        else:
+            asset = str(reward.get("asset", "MOCK")).upper()
+
+        for item, amount in [(reward, amounts[0]), (deposit, amounts[1]), (inference, amounts[2])]:
             if amount > ZERO and str(item.get("asset", asset)).upper() != asset:
                 raise ValueError("all funded MVP escrow amounts must use the reward asset")
 
