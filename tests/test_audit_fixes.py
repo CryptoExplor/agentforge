@@ -659,11 +659,15 @@ def test_alembic_initial_schema_is_reproducible(tmp_path):
     import os
     import subprocess
 
+    repo_root = Path(__file__).resolve().parents[1]
     url = f"sqlite:///{tmp_path / 'migrated.db'}"
     env = os.environ.copy()
     env["AGENTFORGE_DATABASE_URL"] = url
+    server_path = str(repo_root / "server")
+    env["PYTHONPATH"] = f"{server_path}{os.pathsep}{env.get('PYTHONPATH', '')}"
+    import sys
     result = subprocess.run(
-        ["alembic", "upgrade", "head"],
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
         cwd=Path(__file__).resolve().parents[1],
         env=env,
         capture_output=True,

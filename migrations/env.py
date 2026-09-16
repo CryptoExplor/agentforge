@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 from logging.config import fileConfig
+
+server_dir = str(Path(__file__).resolve().parents[1] / "server")
+if server_dir not in sys.path:
+    sys.path.insert(0, server_dir)
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
