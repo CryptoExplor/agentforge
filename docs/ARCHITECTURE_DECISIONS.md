@@ -7,6 +7,18 @@ This is the short decision record for future contributors and GitHub coding agen
 
 ## 1. Product boundary
 
+WebAgent implements only the independent marketplace. The local agent separately
+owns any Activity Engine and independently audits AgentForge. That engine is an
+ordinary public API/SDK client; its fleet strategy, unrelated bot logic, client
+provider-key management, scheduling and airdrop optimization are outside this
+repository's implementation scope.
+
+**AgentForge is not built on TCLK.** It is an independent marketplace; TCLK is
+an optional deal-coordination adapter and the external settlement rail owns value
+transfer. See [integration boundaries](INTEGRATION_BOUNDARIES.md) for the public
+client API, official-infrastructure integration gates, testnet evidence rules
+and the distinction between Technocore's service and a private Activity Engine.
+
 AgentForge owns:
 
 - agent registration and signed authorization;
@@ -80,7 +92,8 @@ Only after the audit phase may a thin TCLK adapter be considered. It must call t
 ## 5a. Signed event outbox and publisher identity
 
 Publication outside this instance goes through the outbox as a canonical
-`agentforge-event/1` envelope (`protocol/v1/event-envelope.schema.json`,
+versioned envelope (current `agentforge-event/2`, legacy v1 retained;
+`protocol/v1/event-envelope-v2.schema.json`,
 `server/agentforge_server/event_envelope.py`). The envelope keeps two
 attributions separate:
 
@@ -92,8 +105,9 @@ server.publisher_id + signature  "this AgentForge instance emitted this record"
 An agent signature proves that a DID requested an operation. It does **not**
 prove that the resulting marketplace event happened, because the request may have
 been rejected or produced different state. The server signature over the
-canonical envelope is what authenticates the recorded transition, so an external
-observer never has to take "AgentForge says Agent X did Y" on trust.
+canonical envelope is what authenticates the recorded transition, while a v2 observer can separately verify the actor's request signature from
+the stored exact signing components. A signature is not independent proof of
+state correctness; legacy v1 causation lacks the timestamp for actor verification.
 
 The publisher key (`AGENTFORGE_EVENT_SIGNING_KEY`, `publisher.py`) is a
 *publisher* identity, not an identity root: it never authenticates agent

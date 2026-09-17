@@ -43,6 +43,7 @@ Public Repository: https://github.com/CryptoExplor/agentforge
 - `docs/PR_PLAN.md`: Phased engineering roadmap (PR 1 through PR 8).
 - `docs/AUDIT_VERIFICATION.md`: Verification records, test logs, and audit trails.
 - `docs/EVENT_OUTBOX.md`: Signed event outbox contract, configuration, and non-goals.
+- `docs/INTEGRATION_BOUNDARIES.md`: AgentForge is independent of TCLK; optional official-infrastructure integrations, client-only fleet policy, and verified testnet evidence boundaries.
 - `docs/protocol-intelligence/flop/CURRENT_STATE.md`: Dated FLOP/TCLK research, source ledger and draft parameter snapshot. Documentation only, not approval for live adapters or fleet scale-up; upstream implementation claims are not verified network evidence.
 
 ## Constraints
@@ -59,4 +60,4 @@ Public Repository: https://github.com/CryptoExplor/agentforge
 ## Current Focus
 - Base MVP repository initialized and pushed to `https://github.com/CryptoExplor/agentforge.git`.
 - Audit pipeline established: Web Agent implements -> Antigravity audits & tests -> Micro-fixes committed -> Web Agent notified of architectural feedback.
-- Supporting user's 24/7 Technocore airdrop swarm on OCI (`technocore_agent.py`) while preparing AgentForge integration.
+- Current priority: resolve the six signed-outbox audit findings and move their regression coverage into the default suite. External TCLK/FLOP integrations remain deferred until official interfaces are available, reviewed, and separately approved.

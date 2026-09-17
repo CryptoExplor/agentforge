@@ -10,20 +10,16 @@ The baseline commit contains the current server, SDK, protocol contract, tests, 
 
 ## Current roadmap position
 
-The roadmap below is the original plan. The merged history so far is:
+The numbered phases below are planning labels, **not GitHub PR numbers**.
+Actual PR #3 was docs reconciliation; actual PR #4 proposed signed-outbox work.
+Do not infer merge status from a roadmap or rename history to fit phase numbers.
 
-```text
-PR #1  refactor: isolate mock settlement provider            merged (4521722)
-PR #2  feat: server-derived asset and mode guardrails        merged (ecd9300)
-PR #3  feat: signed dual-attribution event outbox            merged
-PR #4  multi-validator consensus with dispute escalation     next, needs scope approval
-PR #5  TCLK coordination adapter                             blocked on an official spec
-```
-
-The outbox work below is the "PR 3 - durable external deal reference" row read
-through the current roadmap: delivery, attribution, and telemetry are implemented
-in `docs/EVENT_OUTBOX.md`, while the durable deal/reference model itself remains
-deferred until a concrete external deal must be correlated.
+Current priority: remediate the six signed-outbox findings, move regression
+coverage into the default suite, verify database/concurrency behavior and obtain
+independent review. See [the audit record](AUDIT_SIGNED_OUTBOX_2026-09-17.md).
+Only the maintainer merges. TCLK/FLOP integrations remain deferred until official
+interfaces are available, reviewed and separately approved. No external client
+or activity-bot implementation belongs in this roadmap.
 
 ## Planned PR sequence
 

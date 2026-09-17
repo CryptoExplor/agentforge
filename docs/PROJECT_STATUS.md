@@ -46,7 +46,9 @@ The audit-fix implementation is complete for the frozen MVP scope. The code is i
 
 ## Verification result
 
-The following checks were re-run on `main` after PR #1, PR #2, and PR #3 were merged:
+Historical checks below were recorded for the signed-outbox snapshot `3986dd1`,
+not evidence that its implementation was merged into `main`. Current remediation
+results are in [the audit record](AUDIT_SIGNED_OUTBOX_2026-09-17.md).
 
 | Check | Result |
 |---|---|
@@ -63,15 +65,11 @@ See [`AUDIT_VERIFICATION.md`](AUDIT_VERIFICATION.md) for requirement-by-requirem
 
 ## Where the repository stands today
 
-The archive import, PR #1 (`refactor: isolate mock settlement provider`, merge
-`4521722`), PR #2 (`feat: add server-derived asset and mode guardrails`, merge
-`ecd9300`), and PR #3 (`feat: signed dual-attribution event outbox`) are merged
-into `main`. The provider-boundary refactor, the asset/mode guardrails, and the
-durable signed outbox that this document originally listed as the next
-implementation phases are therefore complete; see
-[`AUDIT_FEEDBACK_LOG.md`](AUDIT_FEEDBACK_LOG.md) and
-[`EVENT_OUTBOX.md`](EVENT_OUTBOX.md) for the audit entry and the envelope
-contract.
+Actual GitHub PR numbers and roadmap phase numbers are different. PR #3 was
+the docs reconciliation; PR #4 proposed the signed-outbox implementation. This
+session's remediation builds on that implementation. Neither a roadmap label
+nor this status document is evidence of a merge. Query GitHub for current PR
+state; only the human maintainer decides and performs merges.
 
 Read these files in order before starting new work:
 
@@ -83,9 +81,9 @@ Read these files in order before starting new work:
 
 Each new PR should stay the size of its predecessors: one cohesive change,
 focused regression tests, no invented FLOP or TCLK assumptions. The next planned
-candidate is PR #4, multi-validator consensus with dispute escalation that
-preserves the existing group-independence checks; it needs explicit scope approval
-first. The TCLK adapter and any official external provider remain blocked on
+priority is the six signed-outbox audit fixes, regression verification and
+independent review. Multi-validator consensus remains a future scope proposal,
+not an assigned GitHub PR number. The TCLK adapter and any official external provider remain blocked on
 published specifications.
 
 ## Known verification limitation

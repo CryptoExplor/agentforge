@@ -11,6 +11,7 @@ This is the short map for a GitHub reviewer or coding agent.
 | `docs/AUDIT_VERIFICATION.md` | Audit requirement traceability and commands |
 | `docs/EVENT_OUTBOX.md` | Signed event outbox: attribution, envelope, configuration, worker, non-goals |
 | `docs/ARCHITECTURE_DECISIONS.md` | Frozen decisions and deferred provider strategy |
+| `docs/INTEGRATION_BOUNDARIES.md` | Independent marketplace, optional TCLK/Technocore/FLOP integrations, client policy and testnet evidence |
 | `docs/protocol-intelligence/flop/CURRENT_STATE.md` | FLOP/TCLK research: retain/defer/exclude decisions, evidence boundaries and pilot gates |
 | `docs/protocol-intelligence/flop/SOURCES.md` | Dated source ledger; draft, reported implementation and unverified claims kept separate |
 | `docs/protocol-intelligence/flop/PARAMETER_SNAPSHOT.json` | Documentation-only draft values with sources/units; runtime values remain null |

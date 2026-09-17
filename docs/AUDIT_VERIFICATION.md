@@ -46,8 +46,10 @@ Schemas valid, OpenAPI match, and Alembic revision `3293de03bb66` after the
 downgrade/re-upgrade round trip, with one non-failing Starlette/httpx
 deprecation warning.
 
-Re-running the same commands on `main` after PR #1, PR #2, and PR #3 were
-merged (2026-09-17, Python 3.11.2) produced:
+Historical signed-outbox snapshot `3986dd1` (2026-09-17, Python 3.11.2)
+produced the following. This is not evidence of an outbox merge or its CI on
+`main`. Current remediation results are in
+[`AUDIT_SIGNED_OUTBOX_2026-09-17.md`](AUDIT_SIGNED_OUTBOX_2026-09-17.md):
 
 | Check | Result |
 |---|---|
