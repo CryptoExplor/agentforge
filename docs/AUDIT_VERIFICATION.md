@@ -46,18 +46,19 @@ Schemas valid, OpenAPI match, and Alembic revision `3293de03bb66` after the
 downgrade/re-upgrade round trip, with one non-failing Starlette/httpx
 deprecation warning.
 
-Re-running the same commands on `main` after PR #1 and PR #2 were merged
-(2026-09-17, Python 3.11.2) produced:
+Re-running the same commands on `main` after PR #1, PR #2, and PR #3 were
+merged (2026-09-17, Python 3.11.2) produced:
 
 | Check | Result |
 |---|---|
-| `python -m pytest -q` | `24 passed`, 2 warnings |
+| `python -m pytest -q` | `52 passed`, 2 warnings |
 | `python -m compileall -q server sdk tests examples` | passed |
-| JSON Schema meta-validation (`protocol/v1/*.schema.json`) | 5 of 5 valid |
+| JSON Schema meta-validation (`protocol/v1/*.schema.json`) | 6 of 6 valid |
 | Generated OpenAPI vs `protocol/v1/openapi.json` | `OPENAPI_MATCH`, 22 paths |
-| `alembic upgrade head -> downgrade base -> upgrade head` | `3293de03bb66 (head)` |
+| `alembic upgrade head -> downgrade base -> upgrade head` | `c4d5e6f7a8b9 (head)` |
 | `git diff --check` | clean |
-| GitHub Actions CI on `main` | success (run `35153608459`) |
+| `python -m agentforge_server.worker --once` | one tick, clean exit |
+| GitHub Actions CI on `main` | success (run `35153608459` for PR #2) |
 
 Both warnings are the non-failing Starlette/httpx and `anyio.abc.BlockingPortal`
 deprecations already noted for the baseline. No test outcome depends on them.
@@ -76,6 +77,11 @@ deprecations already noted for the baseline. No test outcome depends on them.
 | Settlement provider boundary isolated from core marketplace logic | `server/agentforge_server/settlement.py`, `adapters/mock_settlement.py`, thin `services.fund_task`/`services.escrow_settle` wrappers | full suite unchanged; `test_mock_escrow_transitions_conserve_value_and_cannot_double_settle` |
 | Server-derived provider/deployment mode and asset allow-list | `settings.py`, `settlement.get_settlement_provider`, `MockSettlementProvider.fund` | `test_mock_provider_rejects_flop_asset`, `test_mock_provider_rejects_unknown_assets`, `test_mock_provider_accepts_mock_and_test_credit`, `test_client_cannot_choose_network_or_provider_mode`, `test_deployment_and_settlement_mode_are_server_derived`, `test_unsupported_settlement_provider_raises` |
 | Primary escrow asset derived from the first funded component (zero-reward tasks with a `TEST_CREDIT` deposit or inference budget) | `MockSettlementProvider.fund` | `test_zero_reward_task_with_test_credit_deposit` |
+| Durable signed event outbox with dual attribution and feature-flagged transport | `event_envelope.py`, `publisher.py`, `outbox.py`, `worker.py`, `adapters/technocore.py` | `tests/test_signed_event_outbox.py` (28 tests) |
+| Actor and causal attribution from a verified request | `app.py` (`authenticate`, `queue_request_outbox`), `services.queue_outbox` | `test_verified_request_is_recorded_as_causation`, `test_claim_event_records_executor_as_actor`, `test_server_generated_events_have_null_actor_and_causation` |
+| Private payloads, evidence, and credentials never published | `event_envelope.public_attributes`, `services.task_outbox_payload` | `test_envelope_never_publishes_raw_payload_or_private_content`, `test_queued_task_payload_omits_private_input` |
+| Idempotent publication, retry/backoff, dead-letter, and delivery telemetry | `outbox.drain_once`, `outbox.outbox_metrics` | `test_repeated_drain_of_a_delivered_event_is_idempotent`, `test_transport_failure_is_recorded_and_retried_without_losing_the_event`, `test_exhausted_attempts_move_to_dead_letter_with_error`, `test_expired_lease_is_reclaimable_and_metrics_report_age` |
+| Publisher key handling: env-sourced, ephemeral in dev, refused in production, rotation via `key_id` | `publisher.py`, `settings.py` | `test_key_rotation_changes_key_id_and_invalidates_old_signatures`, `test_production_requires_a_configured_signing_key`, `test_invalid_signing_key_is_rejected`, `test_ephemeral_development_key_is_stable_within_the_process` |
 | Documented slash behavior | `mock_burn` destination for requester-subject slash; no account credited | same escrow test and `README.md` |
 | Database-safe active-claim invariant/race handling | partial unique `uq_active_task_claim` index plus claim transaction | `test_active_claim_index_and_outbox_leases_are_database_safe` |
 | Leased outbox delivery | `server/agentforge_server/outbox.py` | `test_active_claim_index_and_outbox_leases_are_database_safe` |

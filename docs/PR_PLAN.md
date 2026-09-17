@@ -8,6 +8,23 @@ This plan keeps the GitHub history easy to review. The baseline import and the f
 
 The baseline commit contains the current server, SDK, protocol contract, tests, Docker files, and the Markdown handoff/verification documents. It should not contain `.env`, `agentforge.db`, private keys, caches, or Python bytecode.
 
+## Current roadmap position
+
+The roadmap below is the original plan. The merged history so far is:
+
+```text
+PR #1  refactor: isolate mock settlement provider            merged (4521722)
+PR #2  feat: server-derived asset and mode guardrails        merged (ecd9300)
+PR #3  feat: signed dual-attribution event outbox            merged
+PR #4  multi-validator consensus with dispute escalation     next, needs scope approval
+PR #5  TCLK coordination adapter                             blocked on an official spec
+```
+
+The outbox work below is the "PR 3 - durable external deal reference" row read
+through the current roadmap: delivery, attribution, and telemetry are implemented
+in `docs/EVENT_OUTBOX.md`, while the durable deal/reference model itself remains
+deferred until a concrete external deal must be correlated.
+
 ## Planned PR sequence
 
 ### PR 1 — Settlement provider boundary — **merged** (`4521722`)

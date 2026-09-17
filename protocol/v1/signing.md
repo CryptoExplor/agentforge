@@ -53,3 +53,33 @@ Private task-linked reads and balances use the same request signature format but
 do not require an idempotency key. Audit reads are authenticated and use the
 opaque `next_cursor` returned by `/api/v1/events`; cursors are ordered by
 `created_at` and event ID.
+
+## Published event envelope signature
+
+Outbox events that leave this instance are published as a canonical
+`agentforge-event/1` envelope (`event-envelope.schema.json`). The envelope
+carries two independent attributions:
+
+```text
+actor.did, causation.*        -> "this DID requested this operation"
+server.publisher_id/key_id    -> "this AgentForge instance emitted this record"
+server.signature               -> authenticates the recorded transition
+```
+
+The publisher signs the UTF-8 bytes of canonical JSON containing every envelope
+field **except** `server.signature`, with `server` reduced to `publisher_id` and
+`key_id` so a signature cannot be replayed under a different publisher or key.
+`key_id` is the first 16 hex characters of `SHA256(publisher_public_key)` and
+changes on rotation.
+
+A valid envelope proves the publisher recorded the transition; it does **not**
+prove that the actor's request succeeded, and the actor signature alone cannot
+prove that either. `causation.request_signature` and
+`causation.request_body_hash` are the verified request attribution:
+`request_id` is the single-use request nonce, and the body hash uses the same
+`sha256:` notation as `payload_hash`.
+
+`payload_hash` is `sha256:` plus the SHA-256 of canonical JSON of the stored
+event payload. The payload itself is never published; only allow-listed
+identifiers and commitment hashes appear in `attributes`. Retries republish
+byte-identical envelopes, so receivers deduplicate by `event_id`.

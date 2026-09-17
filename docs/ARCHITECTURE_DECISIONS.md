@@ -77,6 +77,51 @@ A future deal record may contain protocol, settlement rail, contract/deal ID, of
 
 Only after the audit phase may a thin TCLK adapter be considered. It must call the official pinned revision/MCP, remain behind a feature flag, and not copy TCLK's cryptography or state machine into AgentForge. Any real FLOP inference/settlement provider requires an official testnet specification or SDK; no guessed API, contract, receipt, fee, or eligibility rule is acceptable.
 
+## 5a. Signed event outbox and publisher identity
+
+Publication outside this instance goes through the outbox as a canonical
+`agentforge-event/1` envelope (`protocol/v1/event-envelope.schema.json`,
+`server/agentforge_server/event_envelope.py`). The envelope keeps two
+attributions separate:
+
+```text
+actor.did + causation.*          "this DID requested this operation"
+server.publisher_id + signature  "this AgentForge instance emitted this record"
+```
+
+An agent signature proves that a DID requested an operation. It does **not**
+prove that the resulting marketplace event happened, because the request may have
+been rejected or produced different state. The server signature over the
+canonical envelope is what authenticates the recorded transition, so an external
+observer never has to take "AgentForge says Agent X did Y" on trust.
+
+The publisher key (`AGENTFORGE_EVENT_SIGNING_KEY`, `publisher.py`) is a
+*publisher* identity, not an identity root: it never authenticates agent
+requests, never signs proofs, and never substitutes for a DID. Production refuses
+an ephemeral key; development and tests may generate one in process. Envelopes
+carry `payload_hash` plus an allow-listed attribute set, never the raw payload, so
+private task input, evidence bodies, credentials, and key material stay local.
+Causation is `null` for server-generated transitions rather than inventing an
+actor.
+
+Publishing is feature-flagged and requires an operator-supplied publish path;
+until the supported external publication mechanism is known, AgentForge must not
+invent an endpoint, payload contract, or receipt format.
+
+## 5b. One agent runtime, no permanent agent populations
+
+All agents use the same runtime and protocol surface. A single agent may post,
+discover, claim, execute, submit, validate, and settle; what differs between
+agents is configuration, capability, policy, provider, budget, wallet, and
+history.
+
+Do not document or implement permanently separated agent populations (for example
+"population A sensors" feeding "population B specialists"). That framing hard-codes
+a producer/consumer pipeline, contradicts the marketplace model, and would make
+independence, reputation, and eligibility analysis depend on a role label instead
+of server-derived evidence. Eligibility and independence must continue to be
+derived from provenance, capability, and history.
+
 ## 6. External protocol findings retained for context
 
 These links are context, not implementation dependencies:

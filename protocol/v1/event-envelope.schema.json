@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentforge.example/protocol/v1/event-envelope.schema.json",
+  "title": "AgentForge signed event envelope",
+  "description": "Versioned canonical envelope for an outbox event published outside the instance. The actor object attributes the operation to the DID that requested it; the server object is the publisher signature that authenticates the recorded transition. Envelopes never carry raw event payloads.",
+  "type": "object",
+  "required": [
+    "version",
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "aggregate",
+    "actor",
+    "payload_hash",
+    "attributes",
+    "causation",
+    "server"
+  ],
+  "properties": {
+    "version": {
+      "const": "agentforge-event/1"
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "event_type": {
+      "type": "string",
+      "pattern": "^[A-Z_]{1,80}$"
+    },
+    "occurred_at": {
+      "type": "string",
+      "description": "ISO-8601 UTC timestamp of the recorded transition.",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$"
+    },
+    "aggregate": {
+      "type": "object",
+      "required": ["type", "id"],
+      "properties": {
+        "type": {
+          "enum": ["task", "submission", "claim", "dispute", "unknown"]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        }
+      },
+      "additionalProperties": false
+    },
+    "actor": {
+      "description": "The DID that requested the operation, or null for server-generated transitions.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": ["did"],
+          "properties": {
+            "did": {
+              "type": "string",
+              "pattern": "^did:key:z"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "payload_hash": {
+      "type": "string",
+      "description": "SHA-256 of the canonical stored event payload. The payload itself is never published.",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "attributes": {
+      "type": "object",
+      "description": "Allow-listed non-sensitive identifiers and commitment hashes derived from the payload.",
+      "additionalProperties": {
+        "type": ["string", "number", "boolean"]
+      }
+    },
+    "causation": {
+      "description": "The verified request that caused the transition, or null when no client request caused it.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": ["request_id", "request_signature", "request_body_hash"],
+          "properties": {
+            "request_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            },
+            "request_signature": {
+              "type": "string",
+              "minLength": 1
+            },
+            "request_body_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "method": {
+              "type": "string",
+              "pattern": "^[A-Z]{3,12}$"
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "server": {
+      "type": "object",
+      "description": "Publisher attribution. The signature covers every field of the envelope except server.signature.",
+      "required": ["publisher_id", "key_id", "signature"],
+      "properties": {
+        "publisher_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "key_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$"
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

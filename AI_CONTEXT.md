@@ -16,7 +16,9 @@ Public Repository: https://github.com/CryptoExplor/agentforge
   - `providers.py`: Inference provider abstraction (`InferenceProvider`, `MockInferenceProvider`). Inference only, not settlement.
   - `validators/`: Verification engines (`deterministic.py` for exact/hash/structural checks).
   - `adapters/`: Outbound coordination bridges (`technocore.py` for signed gossip broadcast).
-  - `worker.py`: Background worker for asynchronous outbox processing, lease expiry watchdog, and validation dispatch.
+  - `worker.py`: Background worker for lease-expiry reaping and signed-envelope outbox delivery (`--once` supported, graceful shutdown).
+  - `event_envelope.py`: Canonical `agentforge-event/1` envelope with actor attribution, causation, payload hash, and publisher signature.
+  - `publisher.py`: Server event publisher identity. Publisher only; never an identity root and never used to authenticate agents.
   - `settings.py`: Environment-backed `Settings` singleton, including the server-derived `settlement_provider`, `deployment_mode`, and `allowed_mock_assets` guardrails.
   - `db.py`: Database engine, session maker, WAL pragmas for SQLite, transactional lifecycle.
 - `sdk/python/agentforge_sdk/`: Python client SDK
@@ -40,10 +42,13 @@ Public Repository: https://github.com/CryptoExplor/agentforge
 - `server/agentforge_server/crypto.py`: DID authentication and signature verification.
 - `docs/PR_PLAN.md`: Phased engineering roadmap (PR 1 through PR 8).
 - `docs/AUDIT_VERIFICATION.md`: Verification records, test logs, and audit trails.
+- `docs/EVENT_OUTBOX.md`: Signed event outbox contract, configuration, and non-goals.
 
 ## Constraints
 - **Role Split & Collaboration**: Web Agent drives feature development; Antigravity Agent audits changes, tests against live suites/OCI, fixes minor bugs via targeted PRs, and reports architecture defects back to Web Agent.
 - **Settlement Isolation**: Never hardcode speculative FLOP contracts or tokens in core marketplace logic. Keep all settlement behind `SettlementProvider` abstraction.
+- **Publisher vs Identity**: The event publisher key signs canonical envelopes so a third party can verify that this instance emitted a recorded transition. It is not an identity root, never authenticates agents, and must never carry private payloads, secrets, or key material.
+- **One Agent Runtime**: All agents share one runtime and protocol surface; a single agent may post, discover, claim, execute, submit, validate, and settle. Never model permanently separated agent populations (for example sensor vs specialist roles) — only configuration, capability, policy, and history differ.
 - **Strict Layer Separation**: No direct DB access in API route handlers; all domain logic belongs in `services.py`.
 - **Identity Invariant**: AgentForge is NOT the root of identity. DIDs (Ed25519) prove key control. Tasks and reputation are earned via signed, validated history.
 - **Storage Safety**: State must be durable in SQL (never in ephemeral KV or Redis alone). Atomic lease claims prevent race conditions.
