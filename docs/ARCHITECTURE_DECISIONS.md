@@ -44,7 +44,7 @@ A PAPER or transcript-only coordination result is not an external-network receip
 
 ## 4. Mock accounting rule
 
-The target provider boundary is that the local ledger accepts only mock/test assets such as `MOCK` and `TEST_CREDIT`, and rejects future real asset identifiers until a provider owns the complete interface and verification policy. The current audit baseline is a mock-only reference implementation with `MOCK` as its default; the explicit asset-rejection guard belongs to the next provider-boundary PR and must not be misread as official external settlement.
+The local ledger accepts only mock/test assets such as `MOCK` and `TEST_CREDIT`, and rejects real asset identifiers until a provider owns the complete interface and verification policy. This rule is implemented as of PR #2: `settings.allowed_mock_assets` is the server allow-list, `MockSettlementProvider.fund()` rejects any other asset identifier, and the primary escrow asset is derived from the first funded component rather than assuming the `MOCK` reward default. It must not be misread as official external settlement.
 
 The current mock transitions are:
 
@@ -59,13 +59,19 @@ Requester-subject slash behavior goes to `mock_burn` without crediting an accoun
 
 ## 5. Provider-agnostic next phase
 
-After the audit baseline is uploaded, the smallest next refactor is:
+The smallest next refactor was:
 
 1. define a `SettlementProvider` interface;
 2. move the current local behavior behind `MockSettlementProvider` without changing test semantics;
 3. reject `FLOP` assets through the local mock ledger;
 4. make deployment/provider mode server-derived;
 5. add a deal/reference model only when a real external deal needs durable correlation.
+
+Steps 1-4 are merged (PR #1 and PR #2). `SettlementProvider` and the mock
+implementation live in `settlement.py` and `adapters/mock_settlement.py`; the
+mock settlement tests were preserved unchanged, and unsupported providers raise
+at call time rather than falling back to mock. Step 5 remains future work and is
+blocked on a concrete external integration need.
 
 A future deal record may contain protocol, settlement rail, contract/deal ID, offer/accept hashes, transcript digest, observed status, and terminal receipt. It must never persist secrets, private keys, preimages, or private task payloads.
 

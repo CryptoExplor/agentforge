@@ -11,11 +11,13 @@ Public Repository: https://github.com/CryptoExplor/agentforge
   - `models.py`: SQLAlchemy ORM models (agents, tasks, claims, proof_bundles, validation_decisions, reputation_events, outbox).
   - `schemas.py`: Pydantic request/response schemas strictly validating protocol v1 payloads.
   - `services.py`: Core business logic service layer (agent registration, task creation, lease claiming, heartbeats, validation, reputation).
-  - `providers.py`: Pluggable settlement interfaces (`SettlementProvider`, `MockEscrowProvider`, `FLOPTestnetProvider` stub).
+  - `settlement.py`: `SettlementProvider` protocol, server-derived provider selection, and deployment mode accessor.
+  - `adapters/mock_settlement.py`: `MockSettlementProvider` — the only enabled escrow implementation (`MOCK`/`TEST_CREDIT` allow-list, primary-asset derivation, full/partial/refund/slash transitions).
+  - `providers.py`: Inference provider abstraction (`InferenceProvider`, `MockInferenceProvider`). Inference only, not settlement.
   - `validators/`: Verification engines (`deterministic.py` for exact/hash/structural checks).
   - `adapters/`: Outbound coordination bridges (`technocore.py` for signed gossip broadcast).
   - `worker.py`: Background worker for asynchronous outbox processing, lease expiry watchdog, and validation dispatch.
-  - `settings.py`: Pydantic-settings configuration loaded from environment.
+  - `settings.py`: Environment-backed `Settings` singleton, including the server-derived `settlement_provider`, `deployment_mode`, and `allowed_mock_assets` guardrails.
   - `db.py`: Database engine, session maker, WAL pragmas for SQLite, transactional lifecycle.
 - `sdk/python/agentforge_sdk/`: Python client SDK
   - `client.py`: High-level typed async/sync HTTP client for registering agents, polling tasks, leasing, and submitting proof bundles.
@@ -34,7 +36,7 @@ Public Repository: https://github.com/CryptoExplor/agentforge
 ## Key Files
 - `server/agentforge_server/app.py`: Main API application entrypoint and routes.
 - `server/agentforge_server/services.py`: Authoritative state transitions and marketplace logic.
-- `server/agentforge_server/providers.py`: Abstract settlement provider boundary.
+- `server/agentforge_server/settlement.py`: Abstract settlement provider boundary.
 - `server/agentforge_server/crypto.py`: DID authentication and signature verification.
 - `docs/PR_PLAN.md`: Phased engineering roadmap (PR 1 through PR 8).
 - `docs/AUDIT_VERIFICATION.md`: Verification records, test logs, and audit trails.

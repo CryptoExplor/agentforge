@@ -19,6 +19,8 @@ This is the short map for a GitHub reviewer or coding agent.
 | `server/agentforge_server/schemas.py` | Pydantic request/response validation |
 | `server/agentforge_server/validators/deterministic.py` | Independent hash, acceptance, evidence, schema, receipt, and deadline checks |
 | `server/agentforge_server/outbox.py` | Leased at-least-once outbox delivery |
+| `server/agentforge_server/settlement.py` | `SettlementProvider` protocol, server-derived provider selection, deployment mode |
+| `server/agentforge_server/adapters/mock_settlement.py` | Mock escrow transitions, `MOCK`/`TEST_CREDIT` allow-list, primary-asset derivation |
 | `server/agentforge_server/providers.py` | Mock inference provider and non-official receipts |
 | `server/agentforge_server/provenance.py` | Fail-closed server-registered source adapter boundary |
 | `server/agentforge_server/adapters/technocore.py` | Optional coordination/evidence adapter boundary |
@@ -32,6 +34,7 @@ This is the short map for a GitHub reviewer or coding agent.
 | `migrations/` | Alembic environment and initial schema revision |
 | `tests/test_mvp.py` | Original end-to-end mock exchange coverage |
 | `tests/test_audit_fixes.py` | P0/P1/P2 audit-fix integration coverage |
+| `tests/test_asset_guardrails.py` | Asset allow-list, server-derived provider/mode, and zero-reward escrow coverage |
 | `tests/test_dispute_and_independence.py` | Dispute replay/settlement and server-derived independence coverage |
 | `conformance/README.md` | Future external conformance fixture boundary |
 | `Dockerfile` | Production-oriented image: explicit migration, no faucet |

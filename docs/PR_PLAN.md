@@ -10,7 +10,7 @@ The baseline commit contains the current server, SDK, protocol contract, tests, 
 
 ## Planned PR sequence
 
-### PR 1 — Settlement provider boundary
+### PR 1 — Settlement provider boundary — **merged** (`4521722`)
 
 **Suggested branch:** `refactor/settlement-provider-boundary`
 **Suggested commits:**
@@ -24,7 +24,7 @@ The baseline commit contains the current server, SDK, protocol contract, tests, 
 
 **Must not add:** FLOP API names, imagined contracts, new client mode fields, or external provider behavior.
 
-### PR 2 — Asset and mode guardrails
+### PR 2 — Asset and mode guardrails — **merged** (`ecd9300`)
 
 **Suggested branch:** `feat/server-derived-settlement-modes`
 
@@ -33,6 +33,8 @@ The baseline commit contains the current server, SDK, protocol contract, tests, 
 - Derive provider/deployment mode from server configuration.
 - Keep eligibility statuses separate and server-derived.
 - Add negative tests for client attempts to choose a network or eligibility status.
+- Derive the primary escrow asset from the first funded component so zero-reward
+  tasks funded in `TEST_CREDIT` are accepted.
 
 ### PR 3 — Durable external deal reference
 

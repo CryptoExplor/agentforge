@@ -1,7 +1,7 @@
 # AgentForge project status
 
-**Snapshot date:** 2026-09-15 (Asia/Calcutta)
-**Release shape:** pre-testnet MVP, audit-fix baseline
+**Snapshot date:** 2026-09-17 (Asia/Calcutta)
+**Release shape:** pre-testnet MVP, audit-fix baseline with the settlement provider boundary merged
 **Repository purpose:** a GitHub-ready handoff for future pull requests and small, reviewable commits
 
 ## Executive summary
@@ -22,6 +22,10 @@ The audit-fix implementation is complete for the frozen MVP scope. The code is i
 - Server-derived provenance trust and independence/anti-circularity checks.
 - Immutable validation decisions and idempotent dispute/settlement paths.
 - Explicit mock `FULL_RELEASE`, `PARTIAL_RELEASE`, `REFUND`, and `SLASH` transitions.
+- An isolated `SettlementProvider` boundary (`settlement.py`,
+  `adapters/mock_settlement.py`) with a server-derived `MOCK`/`TEST_CREDIT`
+  allow-list, a primary escrow asset derived from the first funded component,
+  and rejection of unsupported assets and providers.
 - Decimal-string ledger accounting, append-only ledger/reputation/audit events, and outbox delivery leases.
 - Alembic initial schema and development-only `create_all`/faucet behavior.
 - Python SDK, protocol JSON Schemas, signing documentation, OpenAPI, Docker configurations, and CI.
@@ -34,26 +38,36 @@ The audit-fix implementation is complete for the frozen MVP scope. The code is i
 - No official FLOP participation claim for mock/local inference or mock credits.
 - No arbitrary external-agent code execution inside the API process.
 - No promise that a task is `ECONOMIC_ELIGIBLE` or `EXTERNAL_NETWORK_VERIFIED` because a client requested that status.
-- No provider-boundary refactor beyond the current mock behavior; that is the next implementation phase and must preserve the tested semantics.
+- No settlement provider other than the local mock. The boundary exists and rejects any other provider name at call time, but there is still no external rail, deal-reference model, or TCLK adapter to configure.
 
 ## Verification result
 
-The following checks were run in the final workspace before archive generation:
+The following checks were re-run on `main` after PR #1 and PR #2 were merged:
 
 | Check | Result |
 |---|---|
-| `python -m pytest -q` | **16 passed**, 1 Starlette/httpx deprecation warning |
+| `python -m pytest -q` | **24 passed**, 2 Starlette/httpx deprecation warnings |
 | `python -m compileall -q server sdk tests examples` | **Passed** |
-| JSON Schema meta-validation for `protocol/v1/*.schema.json` | **Passed** |
-| Generated FastAPI OpenAPI compared with `protocol/v1/openapi.json` | **Match** |
+| JSON Schema meta-validation for `protocol/v1/*.schema.json` | **Passed**, 5 of 5 |
+| Generated FastAPI OpenAPI compared with `protocol/v1/openapi.json` | **Match**, 22 paths |
 | Alembic SQLite `upgrade head -> downgrade base -> upgrade head` | **Passed**, revision `3293de03bb66` |
+| `git diff --check` | **Clean** |
+| GitHub Actions CI on `main` | **Success** (run `35153608459`) |
 | PostgreSQL integration run | **Not run in the sandbox**; no Docker, Podman, or `psql` executable was available |
 
 See [`AUDIT_VERIFICATION.md`](AUDIT_VERIFICATION.md) for requirement-by-requirement traceability and exact test names.
 
-## Recommended first GitHub action
+## Where the repository stands today
 
-Treat the uploaded archive as the baseline/import commit. Do not mix the next provider-boundary refactor into that import. Read these files in order:
+The archive import, PR #1 (`refactor: isolate mock settlement provider`, merge
+`4521722`), and PR #2 (`feat: add server-derived asset and mode guardrails`,
+merge `ecd9300`) are all merged into `main`. The provider-boundary refactor and
+the asset/mode guardrails that this document originally listed as the next
+implementation phase are therefore complete; see
+[`AUDIT_FEEDBACK_LOG.md`](AUDIT_FEEDBACK_LOG.md) for the audit entry that
+records the merged content, the zero-reward primary-asset defect, and its fix.
+
+Read these files in order before starting new work:
 
 1. [`GITHUB_HANDOFF.md`](GITHUB_HANDOFF.md)
 2. [`AUDIT_VERIFICATION.md`](AUDIT_VERIFICATION.md)
@@ -61,7 +75,10 @@ Treat the uploaded archive as the baseline/import commit. Do not mix the next pr
 4. [`PR_PLAN.md`](PR_PLAN.md)
 5. [`REPOSITORY_MAP.md`](REPOSITORY_MAP.md)
 
-The first implementation PR after the baseline should extract the current local escrow behavior behind a `SettlementProvider` and a `MockSettlementProvider` without changing externally observed mock behavior. It should not add FLOP assumptions.
+Each new PR should stay at the size of PR #1 or PR #2: one cohesive change,
+focused regression tests, no invented FLOP or TCLK assumptions. The planned
+next candidates are the durable outbox/gossip worker and multi-validator
+consensus with dispute escalation; both need explicit scope approval first.
 
 ## Known verification limitation
 
