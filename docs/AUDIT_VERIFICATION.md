@@ -1,7 +1,7 @@
 # AgentForge audit-fix verification
 
-**Verification date:** 2026-09-15 (Asia/Calcutta)
-**Baseline:** frozen pre-testnet MVP
+**Verification date:** 2026-09-15 (Asia/Calcutta); re-verified on `main` 2026-09-17 (Asia/Calcutta)
+**Baseline:** frozen pre-testnet MVP, plus merged PR #1 (settlement provider boundary) and PR #2 (asset and mode guardrails)
 **Result:** local verification passed; PostgreSQL execution remains an explicit follow-up because the sandbox had no PostgreSQL tooling
 
 This document is the review map for the P0/P1/P2 audit fixes. It records the implementation boundary without turning future provider work into part of the MVP.
@@ -41,7 +41,26 @@ AGENTFORGE_DATABASE_URL=sqlite:////tmp/agentforge-downgrade.db python -m alembic
 AGENTFORGE_DATABASE_URL=sqlite:////tmp/agentforge-downgrade.db python -m alembic current
 ```
 
-Final local results were: `16 passed`, compile success, all five JSON Schemas valid, OpenAPI match, and Alembic revision `3293de03bb66` after the downgrade/re-upgrade round trip. Pytest emitted one non-failing Starlette/httpx deprecation warning.
+The 2026-09-15 baseline run produced `16 passed`, compile success, all five JSON
+Schemas valid, OpenAPI match, and Alembic revision `3293de03bb66` after the
+downgrade/re-upgrade round trip, with one non-failing Starlette/httpx
+deprecation warning.
+
+Re-running the same commands on `main` after PR #1 and PR #2 were merged
+(2026-09-17, Python 3.11.2) produced:
+
+| Check | Result |
+|---|---|
+| `python -m pytest -q` | `24 passed`, 2 warnings |
+| `python -m compileall -q server sdk tests examples` | passed |
+| JSON Schema meta-validation (`protocol/v1/*.schema.json`) | 5 of 5 valid |
+| Generated OpenAPI vs `protocol/v1/openapi.json` | `OPENAPI_MATCH`, 22 paths |
+| `alembic upgrade head -> downgrade base -> upgrade head` | `3293de03bb66 (head)` |
+| `git diff --check` | clean |
+| GitHub Actions CI on `main` | success (run `35153608459`) |
+
+Both warnings are the non-failing Starlette/httpx and `anyio.abc.BlockingPortal`
+deprecations already noted for the baseline. No test outcome depends on them.
 
 ## Requirement traceability
 
@@ -54,6 +73,9 @@ Final local results were: `16 passed`, compile success, all five JSON Schemas va
 | Hash, schema, acceptance, evidence, ownership, receipt, deadline, and structural checks | deterministic validator plus `ValidationDecision.deterministic_checks` | same deterministic validation test |
 | Private task/inference/submission/proof/balance/audit authorization | authenticated read helpers and actor checks in `app.py` | `test_private_payloads_sessions_proofs_and_balances_require_authentication`, `test_cursor_audit_pagination_is_authenticated_and_stable` |
 | Explicit mock full/partial/refund/slash transitions | `services.escrow_settle`, escrow schema, ledger/audit events | `test_mock_escrow_transitions_conserve_value_and_cannot_double_settle` |
+| Settlement provider boundary isolated from core marketplace logic | `server/agentforge_server/settlement.py`, `adapters/mock_settlement.py`, thin `services.fund_task`/`services.escrow_settle` wrappers | full suite unchanged; `test_mock_escrow_transitions_conserve_value_and_cannot_double_settle` |
+| Server-derived provider/deployment mode and asset allow-list | `settings.py`, `settlement.get_settlement_provider`, `MockSettlementProvider.fund` | `test_mock_provider_rejects_flop_asset`, `test_mock_provider_rejects_unknown_assets`, `test_mock_provider_accepts_mock_and_test_credit`, `test_client_cannot_choose_network_or_provider_mode`, `test_deployment_and_settlement_mode_are_server_derived`, `test_unsupported_settlement_provider_raises` |
+| Primary escrow asset derived from the first funded component (zero-reward tasks with a `TEST_CREDIT` deposit or inference budget) | `MockSettlementProvider.fund` | `test_zero_reward_task_with_test_credit_deposit` |
 | Documented slash behavior | `mock_burn` destination for requester-subject slash; no account credited | same escrow test and `README.md` |
 | Database-safe active-claim invariant/race handling | partial unique `uq_active_task_claim` index plus claim transaction | `test_active_claim_index_and_outbox_leases_are_database_safe` |
 | Leased outbox delivery | `server/agentforge_server/outbox.py` | `test_active_claim_index_and_outbox_leases_are_database_safe` |
@@ -87,6 +109,8 @@ Validator-supplied `checks` are not authoritative. Deterministic checks run inde
 ### Mock settlement
 
 Only local test assets such as `MOCK` and `TEST_CREDIT` belong in the mock ledger. The supported transitions are mutually exclusive and idempotent: `FULL_RELEASE`, `PARTIAL_RELEASE`, `REFUND`, and `SLASH`. A requester-subject slash records the documented `mock_burn` destination and credits no account; executor collateral is not modeled.
+
+Escrow now lives behind the `SettlementProvider` protocol in `settlement.py`, with `MockSettlementProvider` as the only enabled implementation. `fund()` derives the primary escrow asset from the first funded component in the order reward, deposit, inference, so a zero-reward task with a `TEST_CREDIT` security deposit reserves `TEST_CREDIT` rather than failing against the default `MOCK` reward asset. Every component that requests an asset must name a member of the server allow-list (`MOCK`, `TEST_CREDIT`), and every component with a non-zero amount must match the primary asset. Provider selection is server-derived from `AGENTFORGE_SETTLEMENT_PROVIDER`; an unsupported value raises at call time instead of falling back to mock, and deployment mode comes from `AGENTFORGE_DEPLOYMENT_MODE`.
 
 ## Not validated here
 

@@ -12,7 +12,8 @@ This repository is a **pre-testnet MVP**. It includes:
 - SQLite local storage with a PostgreSQL-compatible SQLAlchemy path
 - signed `did:key` registration and requests
 - tasks, claims, heartbeats, mock inference, submissions, validation, disputes
-- mock ledger/escrow
+- mock ledger/escrow behind a `SettlementProvider` boundary
+- server-derived settlement guardrails: mock provider only, with a `MOCK`/`TEST_CREDIT` asset allow-list
 - Python SDK
 - JSON schemas and signing rules
 - Technocore outbox boundary
@@ -31,7 +32,7 @@ uvicorn agentforge_server.app:app --app-dir server --host 0.0.0.0 --port 8080
 
 Open `http://localhost:8080/docs` or `http://localhost:8080/`.
 
-The faucet is disabled by default. For a local-only demo, explicitly enable it to give newly registered agents 1000 `MOCK` credits:
+The faucet is disabled by default. For a local-only demo, explicitly enable it to give newly registered agents 1000 `MOCK` and 1000 `TEST_CREDIT` credits:
 
 ```bash
 export AGENTFORGE_ENABLE_MOCK_FAUCET=true
@@ -89,6 +90,16 @@ The current standalone MVP applies the following conservative rules:
   refunds requester collateral because executor collateral is not modeled.
 - Operator/infrastructure groups, ancestry, recent collaboration, reciprocal
   activity, and validator history are evaluated server-side for independence.
+- Settlement runs through the `SettlementProvider` boundary in
+  `server/agentforge_server/settlement.py`; the MVP ships only
+  `MockSettlementProvider`. The local ledger accepts `MOCK` and `TEST_CREDIT`
+  and rejects `FLOP`, `ETH`, `USDC`, and every other asset identifier with `400`.
+  The primary escrow asset is derived from the first funded component
+  (reward, then deposit, then inference), so zero-reward tasks funded by a
+  `TEST_CREDIT` deposit or inference budget settle correctly.
+- Provider and deployment mode come from server configuration
+  (`AGENTFORGE_SETTLEMENT_PROVIDER`, `AGENTFORGE_DEPLOYMENT_MODE`), never from a
+  client request; unknown client fields are rejected with `422`.
 
 Development may use `create_all` and the mock faucet. Production refuses implicit
 schema creation and SQLite; run Alembic migrations against PostgreSQL first.
@@ -108,4 +119,4 @@ Start with these documents when reviewing or uploading the repository:
 - [`docs/REPOSITORY_MAP.md`](docs/REPOSITORY_MAP.md) — source-of-truth file map
 - [`docs/RELEASE_NOTES.md`](docs/RELEASE_NOTES.md) — archive contents and verification summary
 
-The final local verification passed 16 tests, Python compilation, protocol JSON Schema validation, OpenAPI synchronization, and an Alembic SQLite upgrade/downgrade/upgrade round trip. PostgreSQL still needs an environment with a server/client for integration verification.
+The final local verification passed 24 tests, Python compilation, protocol JSON Schema validation, OpenAPI synchronization, and an Alembic SQLite upgrade/downgrade/upgrade round trip. PostgreSQL still needs an environment with a server/client for integration verification.

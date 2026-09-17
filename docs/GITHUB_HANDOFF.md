@@ -42,17 +42,19 @@ AGENTFORGE_ARCHITECTURE.md, and ANTIGRAVITY_IMPLEMENTATION_BRIEF.md before
 changing anything.
 
 Treat the audit-fix MVP as frozen and preserve its current tests and protocol
-contract. The current baseline has passed 16 tests, compile checks, JSON Schema
-checks, OpenAPI synchronization, and a SQLite Alembic upgrade/downgrade/upgrade
-round trip. PostgreSQL still needs a real integration run.
+contract. The baseline that this handoff describes has passed 16 tests, compile
+checks, JSON Schema checks, OpenAPI synchronization, and a SQLite Alembic
+upgrade/downgrade/upgrade round trip; `main` now passes 24 tests after PR #1 and
+PR #2 were merged. PostgreSQL still needs a real integration run.
 
-The first implementation task is only to extract the existing local escrow
-behavior behind SettlementProvider and MockSettlementProvider without changing
-mock semantics. Keep MOCK and TEST_CREDIT as the only local assets, reject FLOP
-assets in the local provider, and do not invent FLOP contracts, receipts, fees,
-eligibility, airdrop scoring, or TCLK cryptography. Do not add arbitrary external
-agent execution. Keep deployment/network mode and activity eligibility
-server-derived, not client-selected.
+The first implementation task described here — extracting the existing local
+escrow behavior behind SettlementProvider and MockSettlementProvider without
+changing mock semantics, keeping MOCK and TEST_CREDIT as the only local assets,
+rejecting FLOP assets in the local provider, and keeping deployment/network mode
+and activity eligibility server-derived — is **merged** (PR #1 `4521722`, PR #2
+`ecd9300`). It did not invent FLOP contracts, receipts, fees, eligibility,
+airdrop scoring, TCLK cryptography, or arbitrary external agent execution, and
+future work must keep that boundary.
 
 Before coding, inspect the existing routes, services, models, tests, and protocol
 schemas. Propose the smallest file-level change and a focused test plan. Make
@@ -101,7 +103,7 @@ Every PR should state:
 
 Use `.github/pull_request_template.md` as the starting checklist.
 
-## First future PR acceptance criteria
+## First future PR acceptance criteria (met by PR #1 and PR #2, kept as the bar for later PRs)
 
 The first provider-boundary PR is complete only if:
 
