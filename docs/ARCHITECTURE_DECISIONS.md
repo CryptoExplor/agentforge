@@ -124,6 +124,15 @@ derived from provenance, capability, and history.
 
 ## 6. External protocol findings retained for context
 
+The [FLOP / TCLK intelligence update v1](protocol-intelligence/flop/CURRENT_STATE.md)
+(reviewed 2026-09-17) records useful design implications, a source ledger, draft
+parameter observations and a pinned TCLK research revision. It distinguishes
+upstream target rules from reported implementation status and unverified social
+claims. It does not authorize adapters, relax validation, enable real assets or
+supersede the 5–10-agent pilot. Resolve the
+[signed-outbox audit findings](AUDIT_SIGNED_OUTBOX_2026-09-17.md) before relying on
+outbox attribution and expiry telemetry for external integrations.
+
 These links are context, not implementation dependencies:
 
 - TCLK specification: <https://github.com/flop-labs/tclk/blob/main/SPEC.md>

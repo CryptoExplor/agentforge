@@ -43,9 +43,11 @@ Public Repository: https://github.com/CryptoExplor/agentforge
 - `docs/PR_PLAN.md`: Phased engineering roadmap (PR 1 through PR 8).
 - `docs/AUDIT_VERIFICATION.md`: Verification records, test logs, and audit trails.
 - `docs/EVENT_OUTBOX.md`: Signed event outbox contract, configuration, and non-goals.
+- `docs/protocol-intelligence/flop/CURRENT_STATE.md`: Dated FLOP/TCLK research, source ledger and draft parameter snapshot. Documentation only, not approval for live adapters or fleet scale-up; upstream implementation claims are not verified network evidence.
 
 ## Constraints
 - **Role Split & Collaboration**: Web Agent drives feature development; Antigravity Agent audits changes, tests against live suites/OCI, fixes minor bugs via targeted PRs, and reports architecture defects back to Web Agent.
+- **Do NOT Merge**: Only the human maintainer merges. Agents must never merge or close a PR, push to `main`, force-push, or self-approve. Agents commit to their own session branch and open a PR; the maintainer decides the merge after the audit. An unexpected merge commit is a process violation to report, not a shortcut to repeat.
 - **Settlement Isolation**: Never hardcode speculative FLOP contracts or tokens in core marketplace logic. Keep all settlement behind `SettlementProvider` abstraction.
 - **Publisher vs Identity**: The event publisher key signs canonical envelopes so a third party can verify that this instance emitted a recorded transition. It is not an identity root, never authenticates agents, and must never carry private payloads, secrets, or key material.
 - **One Agent Runtime**: All agents share one runtime and protocol surface; a single agent may post, discover, claim, execute, submit, validate, and settle. Never model permanently separated agent populations (for example sensor vs specialist roles) — only configuration, capability, policy, and history differ.
