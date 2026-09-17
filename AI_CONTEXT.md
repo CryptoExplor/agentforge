@@ -17,7 +17,7 @@ Public Repository: https://github.com/CryptoExplor/agentforge
   - `validators/`: Verification engines (`deterministic.py` for exact/hash/structural checks).
   - `adapters/`: Outbound coordination bridges (`technocore.py` for signed gossip broadcast).
   - `worker.py`: Background worker for lease-expiry reaping and signed-envelope outbox delivery (`--once` supported, graceful shutdown).
-  - `event_envelope.py`: Canonical `agentforge-event/1` envelope with actor attribution, causation, payload hash, and publisher signature.
+  - `event_envelope.py`: Versioned envelope (current `agentforge-event/2`, legacy v1 supported) with actor attribution, causation, payload hash, and publisher signature.
   - `publisher.py`: Server event publisher identity. Publisher only; never an identity root and never used to authenticate agents.
   - `settings.py`: Environment-backed `Settings` singleton, including the server-derived `settlement_provider`, `deployment_mode`, and `allowed_mock_assets` guardrails.
   - `db.py`: Database engine, session maker, WAL pragmas for SQLite, transactional lifecycle.

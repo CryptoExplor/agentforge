@@ -118,7 +118,8 @@ python -m agentforge_server.worker --once   # one reap + drain tick
 ```
 
 Publishing is off by default. AgentForge does not invent a remote contract, so the
-worker only posts signed `agentforge-event/1` envelopes when **both** variables are
+worker only posts signed envelopes (current `agentforge-event/2`, with legacy v1
+support) when **both** variables are
 set:
 
 ```bash

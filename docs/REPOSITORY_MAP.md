@@ -38,12 +38,16 @@ This is the short map for a GitHub reviewer or coding agent.
 | `sdk/python/agentforge_sdk/` | Python identity, signing, and API client |
 | `protocol/v1/*.schema.json` | Versioned machine-readable task, proof, agent, escrow, and validation contracts |
 | `protocol/v1/signing.md` | Canonical signing rules, including published event envelopes |
-| `protocol/v1/event-envelope.schema.json` | Signed event envelope contract (`agentforge-event/1`) |
+| `protocol/v1/event-envelope.schema.json` | Legacy event envelope contract (`agentforge-event/1`), unchanged |
+| `protocol/v1/event-envelope-v2.schema.json` | Current event envelope contract with complete request causation (`agentforge-event/2`) |
+| `protocol/v1/__init__.py` | Exposes canonical schemas as installed `agentforge_protocol` package resources |
 | `protocol/v1/openapi.json` | Generated FastAPI API contract |
 | `migrations/` | Alembic environment and initial schema revision |
 | `tests/test_mvp.py` | Original end-to-end mock exchange coverage |
 | `tests/test_audit_fixes.py` | P0/P1/P2 audit-fix integration coverage |
 | `tests/test_asset_guardrails.py` | Asset allow-list, server-derived provider/mode, and zero-reward escrow coverage |
+| `tests/test_outbox_regressions.py` | Six audit fixes: schema/signatures, atomic expiry, fresh retries, configuration and migrations; SQLite/PostgreSQL |
+| `scripts/check_contracts.py` | Schema/resource parity, OpenAPI and startup migration-head drift gate |
 | `tests/test_signed_event_outbox.py` | Envelope signing, attribution, causation, redaction, transport flags, retries, worker |
 | `tests/test_dispute_and_independence.py` | Dispute replay/settlement and server-derived independence coverage |
 | `conformance/README.md` | Future external conformance fixture boundary |

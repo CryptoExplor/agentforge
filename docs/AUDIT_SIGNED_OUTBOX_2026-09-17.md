@@ -19,11 +19,19 @@ heartbeat/submission/reaper interleavings. The current local suite has **99
 passing tests** (2 dependency deprecation warnings). Contracts and packaging
 checks are recorded in `scripts/check_contracts.py` and CI.
 
-PostgreSQL regression CI uses an isolated schema per test; local PostgreSQL
-installation was blocked by unreachable package repositories. Do not claim
-PostgreSQL/Compose execution success from SQLite results. No independent audit,
-merge approval or external integration is implied. The local auditing agent
-should rerun these checks before the human maintainer makes merge decisions.
+**GitHub Actions verified remediation at `fd165b2`:**
+[CI run 35252261324](https://github.com/CryptoExplor/agentforge/actions/runs/35252261324)
+passed both `test` (default suite, contracts and installed-wheel resources) and
+`postgres-audit-regressions` (the 47-test regression file against PostgreSQL 16,
+with an isolated schema per test). Local PostgreSQL installation was blocked by
+unreachable package repositories; the PostgreSQL evidence is this CI run, not
+an inference from SQLite. Docker Compose itself was not executed.
+
+The separate Vercel deployment check was failing when the PR checks were
+inspected; this remediation does not claim to resolve that deployment issue.
+No independent audit or merge approval is implied. The local auditing agent
+should review the implementation and rerun verification before the human
+maintainer decides either PR's disposition.
 
 ## Scope and disposition
 

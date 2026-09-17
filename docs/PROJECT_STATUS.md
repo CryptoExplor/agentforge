@@ -22,7 +22,7 @@ The audit-fix implementation is complete for the frozen MVP scope. The code is i
 - Server-derived provenance trust and independence/anti-circularity checks.
 - Immutable validation decisions and idempotent dispute/settlement paths.
 - Explicit mock `FULL_RELEASE`, `PARTIAL_RELEASE`, `REFUND`, and `SLASH` transitions.
-- A signed event outbox: versioned `agentforge-event/1` envelopes with actor
+- A signed event outbox: versioned envelopes (current `agentforge-event/2`, legacy v1 supported) with actor
   attribution (DID plus verified request causation) and server publisher
   attribution, feature-flagged transport, retries with backoff, dead-letter,
   delivery telemetry, and an operator-supplied publish path.
