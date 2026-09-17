@@ -544,8 +544,9 @@ def test_active_claim_index_and_outbox_leases_are_database_safe(client):
         def __init__(self):
             self.published = []
 
-        def publish_event(self, event):
-            self.published.append(event["id"])
+        def publish_event(self, envelope):
+            # The outbox now publishes signed canonical envelopes.
+            self.published.append(envelope["event_id"])
             return True
 
     adapter = Adapter()
