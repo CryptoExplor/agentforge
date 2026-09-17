@@ -274,6 +274,13 @@ class OutboxEvent(Base):
     lease_expires_at: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
     delivered_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Actor/causation attribution: who requested the transition, and which
+    # verified request caused it. Null for server-generated transitions.
+    actor_did: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    causation: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    # Delivery telemetry for the worker and for outbox_metrics().
+    last_attempt_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
 
 class AuditEvent(Base):

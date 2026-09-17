@@ -23,6 +23,19 @@ class Settings:
     deployment_mode: str = os.getenv("AGENTFORGE_DEPLOYMENT_MODE", "local").lower()
     # Explicit allow-list for local mock ledger; FLOP and other real assets are rejected.
     allowed_mock_assets: tuple[str, ...] = ("MOCK", "TEST_CREDIT")
+    # Signed gossip outbox. Publishing outside this instance is opt-in and needs
+    # an explicit operator-supplied publish path: the MVP never invents a remote
+    # endpoint, payload contract, or receipt format.
+    gossip_enabled: bool = os.getenv("AGENTFORGE_GOSSIP_ENABLED", "false").lower() in {"1", "true", "yes"}
+    technocore_publish_path: str = os.getenv("AGENTFORGE_TECHNOCORE_PUBLISH_PATH", "").strip()
+    # Publisher identity for signed event envelopes. This is a publisher key, not
+    # an identity root: it never authenticates agent requests.
+    event_publisher_id: str = os.getenv("AGENTFORGE_EVENT_PUBLISHER_ID", "agentforge-reference-server")
+    # 32-byte Ed25519 seed (hex or base64url) from the deployment secret manager.
+    # Never commit a real value; production refuses an ephemeral key.
+    event_signing_key: str = os.getenv("AGENTFORGE_EVENT_SIGNING_KEY", "")
+    outbox_interval_seconds: float = float(os.getenv("AGENTFORGE_OUTBOX_INTERVAL_SECONDS", "5"))
+    outbox_jitter_seconds: float = float(os.getenv("AGENTFORGE_OUTBOX_JITTER_SECONDS", "0.5"))
 
 
 settings = Settings()

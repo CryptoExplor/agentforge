@@ -74,6 +74,7 @@ from .services import (
     reap_expired_claims,
     reputation_for,
     required_capability_names,
+    task_outbox_payload,
     task_payload,
     verified_provenance_level,
 )
@@ -176,6 +177,18 @@ def create_app() -> FastAPI:
         if not verify_signature(did, message, signature):
             raise http_error(401, "invalid request signature")
 
+        # Record the verified request as causal attribution for any outbox event
+        # this request produces. request_id is the single-use request nonce, which
+        # the server already persists in used_nonces.
+        request.state.actor_did = did
+        request.state.causation = {
+            "request_id": nonce,
+            "request_signature": signature,
+            "request_body_hash": "sha256:" + sha256_bytes(raw_body),
+            "method": request.method.upper(),
+            "path": request.url.path,
+        }
+
         # Reap before authorizing work so expired claims cannot remain usable.
         reap_expired_claims(db)
         used = UsedNonce(did=did, nonce=nonce, created_at=now())
@@ -259,6 +272,30 @@ def create_app() -> FastAPI:
         record = getattr(request.state, "idempotency_record", None)
         if record is not None and getattr(request.state, "idempotency_replay", None) is None:
             db.delete(record)
+
+    def queue_request_outbox(
+        request: Request,
+        db: Session,
+        *,
+        kind: str,
+        aggregate_id: str,
+        payload: dict[str, Any],
+    ) -> OutboxEvent:
+        """Queue an event with the verified request recorded as its causation.
+
+        The outbox event carries the acting DID plus the verified request
+        signature, request nonce, and body hash, so a published envelope can show
+        both "this DID requested this operation" and "this instance recorded the
+        resulting transition".
+        """
+        return queue_outbox(
+            db,
+            kind=kind,
+            aggregate_id=aggregate_id,
+            payload=payload,
+            actor_did=getattr(request.state, "actor_did", None),
+            causation=getattr(request.state, "causation", None),
+        )
 
     def agent_view(db: Session, agent: Agent) -> dict[str, Any]:
         capabilities = db.scalars(
@@ -552,11 +589,12 @@ def create_app() -> FastAPI:
         try:
             db.flush()
             fund_task(db, task)
-            queue_outbox(
+            queue_request_outbox(
+                request,
                 db,
                 kind="TASK_CREATED",
                 aggregate_id=task.id,
-                payload=task_payload(task),
+                payload=task_outbox_payload(task),
             )
             add_audit(
                 db,
@@ -647,7 +685,7 @@ def create_app() -> FastAPI:
         task.status = "CANCELLED"
         task.updated_at = now()
         add_audit(db, actor_did=did, kind="TASK_CANCELLED", aggregate_type="task", aggregate_id=task.id, payload={})
-        queue_outbox(db, kind="TASK_CANCELLED", aggregate_id=task.id, payload={"task_id": task.id})
+        queue_request_outbox(request, db, kind="TASK_CANCELLED", aggregate_id=task.id, payload={"task_id": task.id})
         response_body = task_view(db, task)
         finish_idempotency(request, response_body)
         db.commit()
@@ -704,7 +742,7 @@ def create_app() -> FastAPI:
         task.state_version += 1
         task.updated_at = created
         add_audit(db, actor_did=did, kind="TASK_CLAIMED", aggregate_type="task", aggregate_id=task.id, payload={"claim_id": claim.id})
-        queue_outbox(db, kind="TASK_CLAIMED", aggregate_id=task.id, payload={"task_id": task.id, "claim_id": claim.id, "executor_did": did})
+        queue_request_outbox(request, db, kind="TASK_CLAIMED", aggregate_id=task.id, payload={"task_id": task.id, "claim_id": claim.id, "executor_did": did})
         response_body = {
             "claim_id": claim.id,
             "task_id": task.id,
@@ -910,7 +948,7 @@ def create_app() -> FastAPI:
         claim.status = "SUBMITTED"
         task.updated_at = now()
         add_audit(db, actor_did=did, kind="TASK_SUBMITTED", aggregate_type="submission", aggregate_id=submission.id, payload={"task_id": task.id, "proof_hash": submission.proof_hash})
-        queue_outbox(db, kind="PROOF_SUBMITTED", aggregate_id=submission.id, payload={"task_id": task.id, "submission_id": submission.id, "proof": proof})
+        queue_request_outbox(request, db, kind="PROOF_SUBMITTED", aggregate_id=submission.id, payload={"task_id": task.id, "submission_id": submission.id, "proof_hash": proof.get("proof_hash")})
         response_body = submission_view(submission)
         finish_idempotency(request, response_body)
         db.commit()
@@ -1092,7 +1130,7 @@ def create_app() -> FastAPI:
             reference_id=submission.id,
         )
         add_audit(db, actor_did=validator_did, kind="VALIDATION_RECORDED", aggregate_type="submission", aggregate_id=submission.id, payload={"decision": body.decision, "decision_id": body.decision_id})
-        queue_outbox(db, kind="VALIDATION_RECORDED", aggregate_id=submission.id, payload={"task_id": task.id, "submission_id": submission.id, "decision": body.decision, "decision_id": body.decision_id, "evidence_hash": evidence_hash})
+        queue_request_outbox(request, db, kind="VALIDATION_RECORDED", aggregate_id=submission.id, payload={"task_id": task.id, "submission_id": submission.id, "decision": body.decision, "decision_id": body.decision_id, "evidence_hash": evidence_hash})
         if dispute_id:
             dispute = db.get(Dispute, dispute_id)
             if dispute:
@@ -1194,7 +1232,7 @@ def create_app() -> FastAPI:
             escrow.status = "FROZEN"
             escrow.updated_at = now()
         add_audit(db, actor_did=did, kind="DISPUTE_OPENED", aggregate_type="submission", aggregate_id=submission.id, payload={"dispute_id": dispute.id})
-        queue_outbox(db, kind="DISPUTE_OPENED", aggregate_id=submission.id, payload={"task_id": task.id, "submission_id": submission.id, "dispute_id": dispute.id})
+        queue_request_outbox(request, db, kind="DISPUTE_OPENED", aggregate_id=submission.id, payload={"task_id": task.id, "submission_id": submission.id, "dispute_id": dispute.id})
         response_body = {"dispute_id": dispute.id, "submission_id": submission.id, "status": dispute.status}
         finish_idempotency(request, response_body)
         db.commit()

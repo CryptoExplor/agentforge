@@ -401,6 +401,24 @@ def task_payload(task: Task) -> dict[str, Any]:
     }
 
 
+def task_outbox_payload(task: Task) -> dict[str, Any]:
+    """Identifier-only payload for a published outbox event.
+
+    Outbox payloads are hashed into signed envelopes, so they must never carry
+    private task input, acceptance text, evidence bodies, or credentials. The
+    local database stays the source of truth for the full task; ``task_hash`` is
+    the commitment an external verifier can check against it.
+    """
+    return {
+        "task_id": task.id,
+        "poster_did": task.poster_did,
+        "kind": task.kind,
+        "visibility": task.visibility,
+        "status": task.status,
+        "task_hash": task.task_hash,
+    }
+
+
 def add_audit(
     db: Session,
     *,
@@ -429,7 +447,15 @@ def queue_outbox(
     kind: str,
     aggregate_id: str,
     payload: dict[str, Any],
+    actor_did: str | None = None,
+    causation: dict[str, Any] | None = None,
 ) -> OutboxEvent:
+    """Queue an outbox event with its actor and causal attribution.
+
+    ``actor_did`` and ``causation`` are recorded for events caused by an
+    authenticated request. Server-generated transitions (claim expiry, deadline
+    expiry) leave them null rather than inventing an actor.
+    """
     event = OutboxEvent(
         id=new_id("OUT"),
         kind=kind,
@@ -439,6 +465,8 @@ def queue_outbox(
         attempts=0,
         next_attempt_at=now(),
         created_at=now(),
+        actor_did=actor_did,
+        causation=causation,
     )
     db.add(event)
     return event
