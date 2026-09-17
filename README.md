@@ -16,7 +16,7 @@ This repository is a **pre-testnet MVP**. It includes:
 - server-derived settlement guardrails: mock provider only, with a `MOCK`/`TEST_CREDIT` asset allow-list
 - Python SDK
 - JSON schemas and signing rules
-- Technocore outbox boundary
+- durable signed event outbox with dual attribution (actor + publisher) and a feature-flagged transport
 - audit-fix verification and GitHub handoff documentation under `docs/`
 
 FLOP-specific contracts, airdrop rules, and official inference settlement are intentionally not implemented.
@@ -107,6 +107,38 @@ Use `Dockerfile.dev`/`docker-compose.dev.yml` only for development. No FLOP
 contract, airdrop, bidding, federation, marketplace, or arbitrary external-code
 execution is included.
 
+## Signed event outbox worker
+
+Transitions are queued in the same transaction as the state change and published by
+a separate worker process:
+
+```bash
+python -m agentforge_server.worker          # continuous loop
+python -m agentforge_server.worker --once   # one reap + drain tick
+```
+
+Publishing is off by default. AgentForge does not invent a remote contract, so the
+worker only posts signed `agentforge-event/1` envelopes when **both** variables are
+set:
+
+```bash
+export AGENTFORGE_GOSSIP_ENABLED=true
+export AGENTFORGE_TECHNOCORE_PUBLISH_PATH=/your/supported/publish/path
+# Production requires a publisher key from the secret manager; the server refuses
+# an ephemeral key there.
+export AGENTFORGE_EVENT_SIGNING_KEY=<32-byte Ed25519 seed, hex or base64url>
+```
+
+Each envelope carries the acting DID plus the verified request that caused the
+transition, and the server's own signature over the recorded event. The publisher
+key is a publisher identity only: it never authenticates agents and is not an
+identity root. Raw payloads are never published — only a payload hash and an
+allow-listed set of identifiers. See [`docs/EVENT_OUTBOX.md`](docs/EVENT_OUTBOX.md)
+and [`protocol/v1/signing.md`](protocol/v1/signing.md).
+
+With publishing disabled, events stay `PENDING` without consuming retry attempts,
+so enabling the transport later is safe.
+
 ## Verification and GitHub handoff
 
 Start with these documents when reviewing or uploading the repository:
@@ -115,8 +147,9 @@ Start with these documents when reviewing or uploading the repository:
 - [`docs/AUDIT_VERIFICATION.md`](docs/AUDIT_VERIFICATION.md) — P0/P1/P2 traceability and commands
 - [`docs/ARCHITECTURE_DECISIONS.md`](docs/ARCHITECTURE_DECISIONS.md) — frozen boundary and provider strategy
 - [`docs/GITHUB_HANDOFF.md`](docs/GITHUB_HANDOFF.md) — upload instructions and copy-paste new-chat prompt
+- [`docs/EVENT_OUTBOX.md`](docs/EVENT_OUTBOX.md) — signed event outbox, configuration, and non-goals
 - [`docs/PR_PLAN.md`](docs/PR_PLAN.md) — small future PR/commit sequence
 - [`docs/REPOSITORY_MAP.md`](docs/REPOSITORY_MAP.md) — source-of-truth file map
 - [`docs/RELEASE_NOTES.md`](docs/RELEASE_NOTES.md) — archive contents and verification summary
 
-The final local verification passed 24 tests, Python compilation, protocol JSON Schema validation, OpenAPI synchronization, and an Alembic SQLite upgrade/downgrade/upgrade round trip. PostgreSQL still needs an environment with a server/client for integration verification.
+The final local verification passed 52 tests, Python compilation, protocol JSON Schema validation (6 schemas), OpenAPI synchronization, an Alembic SQLite upgrade/downgrade/upgrade round trip, and a clean `worker --once` tick. PostgreSQL still needs an environment with a server/client for integration verification.

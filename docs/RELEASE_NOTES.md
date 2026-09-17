@@ -25,7 +25,9 @@ The audit-fix work covers claim expiry/reopen, persistent idempotency, conservat
 
 - PR #1 (`refactor: isolate mock settlement provider`, merge `4521722`) moved the local escrow behavior behind `SettlementProvider`/`MockSettlementProvider` without changing mock semantics.
 - PR #2 (`feat: add server-derived asset and mode guardrails`, merge `ecd9300`) added the `MOCK`/`TEST_CREDIT` allow-list, server-derived provider/deployment mode, and the zero-reward primary-asset fix.
+- PR #3 (`feat: signed dual-attribution event outbox`) added the versioned `agentforge-event/1` envelope, the server publisher identity, actor/causation attribution, feature-flagged transport, delivery telemetry, and the worker service.
+- A documentation PR reconciled the status, verification, and repository-map documents with the merged provider boundary and guardrails.
 
 ## Next planned work
 
-Deferred, needs explicit scope approval: durable outbox/gossip delivery to Technocore, then multi-validator consensus with dispute escalation. See [`PR_PLAN.md`](PR_PLAN.md), [`AUDIT_FEEDBACK_LOG.md`](AUDIT_FEEDBACK_LOG.md), and [`ARCHITECTURE_DECISIONS.md`](ARCHITECTURE_DECISIONS.md).
+Deferred, needs explicit scope approval: multi-validator consensus with dispute escalation, then the TCLK adapter and any official external provider. See [`PR_PLAN.md`](PR_PLAN.md), [`AUDIT_FEEDBACK_LOG.md`](AUDIT_FEEDBACK_LOG.md), and [`ARCHITECTURE_DECISIONS.md`](ARCHITECTURE_DECISIONS.md).

@@ -22,6 +22,10 @@ The audit-fix implementation is complete for the frozen MVP scope. The code is i
 - Server-derived provenance trust and independence/anti-circularity checks.
 - Immutable validation decisions and idempotent dispute/settlement paths.
 - Explicit mock `FULL_RELEASE`, `PARTIAL_RELEASE`, `REFUND`, and `SLASH` transitions.
+- A signed event outbox: versioned `agentforge-event/1` envelopes with actor
+  attribution (DID plus verified request causation) and server publisher
+  attribution, feature-flagged transport, retries with backoff, dead-letter,
+  delivery telemetry, and an operator-supplied publish path.
 - An isolated `SettlementProvider` boundary (`settlement.py`,
   `adapters/mock_settlement.py`) with a server-derived `MOCK`/`TEST_CREDIT`
   allow-list, a primary escrow asset derived from the first funded component,
@@ -42,15 +46,15 @@ The audit-fix implementation is complete for the frozen MVP scope. The code is i
 
 ## Verification result
 
-The following checks were re-run on `main` after PR #1 and PR #2 were merged:
+The following checks were re-run on `main` after PR #1, PR #2, and PR #3 were merged:
 
 | Check | Result |
 |---|---|
-| `python -m pytest -q` | **24 passed**, 2 Starlette/httpx deprecation warnings |
+| `python -m pytest -q` | **52 passed**, 2 Starlette/httpx deprecation warnings |
 | `python -m compileall -q server sdk tests examples` | **Passed** |
-| JSON Schema meta-validation for `protocol/v1/*.schema.json` | **Passed**, 5 of 5 |
+| JSON Schema meta-validation for `protocol/v1/*.schema.json` | **Passed**, 6 of 6 |
 | Generated FastAPI OpenAPI compared with `protocol/v1/openapi.json` | **Match**, 22 paths |
-| Alembic SQLite `upgrade head -> downgrade base -> upgrade head` | **Passed**, revision `3293de03bb66` |
+| Alembic SQLite `upgrade head -> downgrade base -> upgrade head` | **Passed**, revision `c4d5e6f7a8b9` |
 | `git diff --check` | **Clean** |
 | GitHub Actions CI on `main` | **Success** (run `35153608459`) |
 | PostgreSQL integration run | **Not run in the sandbox**; no Docker, Podman, or `psql` executable was available |
@@ -60,12 +64,14 @@ See [`AUDIT_VERIFICATION.md`](AUDIT_VERIFICATION.md) for requirement-by-requirem
 ## Where the repository stands today
 
 The archive import, PR #1 (`refactor: isolate mock settlement provider`, merge
-`4521722`), and PR #2 (`feat: add server-derived asset and mode guardrails`,
-merge `ecd9300`) are all merged into `main`. The provider-boundary refactor and
-the asset/mode guardrails that this document originally listed as the next
-implementation phase are therefore complete; see
-[`AUDIT_FEEDBACK_LOG.md`](AUDIT_FEEDBACK_LOG.md) for the audit entry that
-records the merged content, the zero-reward primary-asset defect, and its fix.
+`4521722`), PR #2 (`feat: add server-derived asset and mode guardrails`, merge
+`ecd9300`), and PR #3 (`feat: signed dual-attribution event outbox`) are merged
+into `main`. The provider-boundary refactor, the asset/mode guardrails, and the
+durable signed outbox that this document originally listed as the next
+implementation phases are therefore complete; see
+[`AUDIT_FEEDBACK_LOG.md`](AUDIT_FEEDBACK_LOG.md) and
+[`EVENT_OUTBOX.md`](EVENT_OUTBOX.md) for the audit entry and the envelope
+contract.
 
 Read these files in order before starting new work:
 
@@ -75,10 +81,12 @@ Read these files in order before starting new work:
 4. [`PR_PLAN.md`](PR_PLAN.md)
 5. [`REPOSITORY_MAP.md`](REPOSITORY_MAP.md)
 
-Each new PR should stay at the size of PR #1 or PR #2: one cohesive change,
-focused regression tests, no invented FLOP or TCLK assumptions. The planned
-next candidates are the durable outbox/gossip worker and multi-validator
-consensus with dispute escalation; both need explicit scope approval first.
+Each new PR should stay the size of its predecessors: one cohesive change,
+focused regression tests, no invented FLOP or TCLK assumptions. The next planned
+candidate is PR #4, multi-validator consensus with dispute escalation that
+preserves the existing group-independence checks; it needs explicit scope approval
+first. The TCLK adapter and any official external provider remain blocked on
+published specifications.
 
 ## Known verification limitation
 
