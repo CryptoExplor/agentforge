@@ -27,14 +27,33 @@ envelope.
 
 from __future__ import annotations
 
+import json
+import math
+from importlib.resources import files
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-from .crypto import b64url_decode, canonical_json, sha256_json
+from jsonschema import Draft202012Validator, FormatChecker
 
-ENVELOPE_VERSION = "agentforge-event/1"
+from .crypto import b64url_decode, canonical_json, sha256_json, verify_signature
+
+LEGACY_ENVELOPE_VERSION = "agentforge-event/1"
+ENVELOPE_VERSION = "agentforge-event/2"
+
+# Load the exact public schemas from package resources, including in wheels.
+# No copied handwritten validator and no filesystem/repository-root dependency.
+_VALIDATORS = {
+    version: Draft202012Validator(
+        json.loads(files("agentforge_protocol").joinpath(name).read_text(encoding="utf-8")),
+        format_checker=FormatChecker(),
+    )
+    for version, name in (
+        (LEGACY_ENVELOPE_VERSION, "event-envelope.schema.json"),
+        (ENVELOPE_VERSION, "event-envelope-v2.schema.json"),
+    )
+}
 HASH_PREFIX = "sha256:"
 MAX_ATTRIBUTE_STRING = 200
 
@@ -77,20 +96,6 @@ AGGREGATE_TYPES = {
     "DISPUTE_OPENED": "submission",
 }
 
-REQUIRED_FIELDS = (
-    "version",
-    "event_id",
-    "event_type",
-    "occurred_at",
-    "aggregate",
-    "actor",
-    "payload_hash",
-    "attributes",
-    "causation",
-    "server",
-)
-
-CAUSATION_FIELDS = ("request_id", "request_signature", "request_body_hash")
 
 
 class EnvelopeError(ValueError):
@@ -160,61 +165,61 @@ def signing_bytes(envelope: dict[str, Any]) -> bytes:
 
 
 def validate_envelope(envelope: dict[str, Any]) -> None:
-    """Fail closed on structurally invalid envelopes.
-
-    This is a structural check only; it never verifies or replaces the
-    signature, and it is deliberately usable by an external verifier before the
-    signature check.
-    """
+    """Enforce the public versioned schema; errors never echo supplied values."""
     if not isinstance(envelope, dict):
         raise EnvelopeError("envelope must be an object")
-    missing = [field for field in REQUIRED_FIELDS if field not in envelope]
-    if missing:
-        raise EnvelopeError(f"envelope is missing required fields: {', '.join(missing)}")
-    if envelope.get("version") != ENVELOPE_VERSION:
-        raise EnvelopeError(f"unsupported envelope version: {envelope.get('version')!r}")
-    if not str(envelope.get("event_id") or ""):
-        raise EnvelopeError("envelope requires an event_id")
-    if not str(envelope.get("event_type") or ""):
-        raise EnvelopeError("envelope requires an event_type")
-    if not str(envelope.get("occurred_at") or ""):
-        raise EnvelopeError("envelope requires occurred_at")
-    aggregate = envelope.get("aggregate")
-    if not isinstance(aggregate, dict) or not aggregate.get("type") or not aggregate.get("id"):
-        raise EnvelopeError("envelope aggregate requires a type and id")
-    actor = envelope.get("actor")
-    if actor is not None and not (
-        isinstance(actor, dict) and str(actor.get("did", "")).startswith("did:key:")
-    ):
-        raise EnvelopeError("envelope actor must be null or a did:key identifier")
-    if not str(envelope.get("payload_hash") or ""):
-        raise EnvelopeError("envelope requires a payload_hash")
-    attributes = envelope.get("attributes")
-    if not isinstance(attributes, dict):
-        raise EnvelopeError("envelope requires an attributes object")
-    causation = envelope.get("causation")
-    if causation is not None:
-        if not isinstance(causation, dict):
-            raise EnvelopeError("envelope causation must be null or an object")
-        for field in CAUSATION_FIELDS:
-            if not causation.get(field):
-                raise EnvelopeError(f"envelope causation requires {field}")
-    server = envelope.get("server")
-    if not isinstance(server, dict):
-        raise EnvelopeError("envelope requires a server attribution object")
-    for field in ("publisher_id", "key_id", "signature"):
-        if not server.get(field):
-            raise EnvelopeError(f"envelope server attribution requires {field}")
+    version = envelope.get("version")
+    if not isinstance(version, str) or version not in _VALIDATORS:
+        raise EnvelopeError("unsupported envelope version")
     if "payload" in envelope:
         raise EnvelopeError("raw event payloads must not be published in an envelope")
+    error = next(_VALIDATORS[version].iter_errors(envelope), None)
+    if error is not None:
+        # JSONSchema messages can contain private input values. Only report the
+        # failed rule; never store its message or instance in delivery telemetry.
+        raise EnvelopeError(f"envelope schema violation ({error.validator})")
+    try:
+        canonical_json(envelope)  # Reject NaN/Infinity even in JSON number fields.
+    except (TypeError, ValueError) as exc:
+        raise EnvelopeError("envelope is not canonical JSON") from exc
+
+
+def verify_actor_causation(envelope: dict[str, Any]) -> bool:
+    """Verify actor attribution solely from v2 envelope data (no private body).
+
+    This does not verify the publisher, prove successful execution, authorize a
+    new request, or apply a present-day replay/skew window to historical data.
+    Call verify_envelope with a trusted publisher key independently.
+    Legacy/absent causation is not independently verifiable and returns False.
+    """
+    try:
+        validate_envelope(envelope)
+        if envelope["version"] != ENVELOPE_VERSION or not envelope["actor"] or not envelope["causation"]:
+            return False
+        cause = envelope["causation"]
+        timestamp = cause["request_timestamp"]
+        if not math.isfinite(float(timestamp)):
+            return False
+        message = "\n".join([
+            cause["method"], cause["path"], cause["request_body_hash"][len(HASH_PREFIX):],
+            timestamp, cause["request_id"],
+        ]).encode("utf-8")
+        return verify_signature(envelope["actor"]["did"], message, cause["request_signature"])
+    except (ValueError, TypeError, KeyError):
+        return False
 
 
 def build_envelope(event: Any, *, publisher: EnvelopeSigner) -> dict[str, Any]:
     """Build and sign the canonical envelope for an outbox event."""
     if not getattr(event, "id", None) or not getattr(event, "kind", None):
         raise EnvelopeError("outbox event requires an id and kind")
+    causation = getattr(event, "causation", None)
+    # Old rows lack the exact timestamp. Keep their original v1 shape rather
+    # than fabricating data or falsely presenting complete v2 attribution.
+    version = (LEGACY_ENVELOPE_VERSION if causation and "request_timestamp" not in causation
+               else ENVELOPE_VERSION)
     envelope: dict[str, Any] = {
-        "version": ENVELOPE_VERSION,
+        "version": version,
         "event_id": event.id,
         "event_type": event.kind,
         "occurred_at": occurred_at_from_epoch(event.created_at),

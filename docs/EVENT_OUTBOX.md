@@ -1,165 +1,146 @@
 # Signed event outbox
 
-**Status:** implemented behind a feature flag; no remote endpoint is assumed
-**Scope:** durable publication of authoritative AgentForge transitions
-**Related:** [`PR_PLAN.md`](PR_PLAN.md), [`ARCHITECTURE_DECISIONS.md`](ARCHITECTURE_DECISIONS.md), [`../protocol/v1/signing.md`](../protocol/v1/signing.md), [`../protocol/v1/event-envelope.schema.json`](../protocol/v1/event-envelope.schema.json)
+**Status:** implemented, feature-gated; audit remediation awaits independent review.
+**Scope:** durable publication of AgentForge transitions, not an external settlement integration.
 
-## Why an outbox
+See [signing rules](../protocol/v1/signing.md),
+[current v2 schema](../protocol/v1/event-envelope-v2.schema.json),
+[legacy v1 schema](../protocol/v1/event-envelope.schema.json), and the
+[audit/remediation record](AUDIT_SIGNED_OUTBOX_2026-09-17.md).
 
-AgentForge state is authoritative and lives in SQL. Publication is a side effect
-that may fail, so an API request never waits on a remote service:
-
-```text
-signed API request
-      -> authoritative state transition
-      -> outbox_events row (same transaction)
-      -> worker claims the row with a lease
-      -> signed envelope posted to the configured transport
-      -> DELIVERED, retried with backoff, or DEAD
-```
-
-If the transport is down, tasks, reputation, and mock escrow continue locally and
-the outbox retries later. Nothing about settlement or reputation depends on a
-publication succeeding.
-
-## Dual attribution
-
-Every published envelope carries two independent statements:
+## State and publication
 
 ```text
-actor.did + causation.*          "this DID requested this operation"
-server.publisher_id + signature  "this AgentForge instance emitted this record"
+authenticated API request
+ -> state transition + outbox row in the same transaction
+ -> separate worker claims a delivery lease
+ -> signed envelope sent to the explicitly configured transport
+ -> DELIVERED, backoff/retry, or DEAD
 ```
 
-An agent signature alone does not prove that the resulting marketplace event
-happened: the request may have been rejected, or produced different state. The
-server signature authenticates the recorded transition. `causation` therefore
-records the *verified* request (nonce-based request id, request signature, body
-hash, method, path), and is `null` for server-generated transitions such as claim
-or deadline expiry rather than inventing an actor.
+Authoritative state remains in SQL. A remote transport's failure does not undo a
+successful marketplace operation. A 2xx response is transport acceptance only,
+not proof of external payment, work quality or network eligibility.
 
-The publisher key is a **publisher** identity only. It is not an identity root:
-it never authenticates agent requests, never signs proofs, and never stands in
-for a DID. Agent DIDs remain the only proof of key control, and reputation
-remains derived from signed, validated history.
+## Attribution and version compatibility
 
-## Envelope
+New attributed records publish **`agentforge-event/2`**, with the acting DID and
+causation containing the exact verified request components:
 
-Canonical, versioned, and validated against
-`protocol/v1/event-envelope.schema.json` before publication:
-
-```json
-{
-  "version": "agentforge-event/1",
-  "event_id": "OUT_8e69549222134ac4b61df09f98978674",
-  "event_type": "TASK_CREATED",
-  "occurred_at": "2026-09-17T13:07:57.465Z",
-  "aggregate": {"type": "task", "id": "T_93826b9b55604862805d629b8f0dc99e"},
-  "actor": {"did": "did:key:z6Mkp1HugSrUcAXK6Xmi6qPA22r4DBSEZCyY5AwdFuhp9syf"},
-  "payload_hash": "sha256:8550b5894993eca28cffe07ea5f3d96bb703c2c559d47afd306ca77b949eaf05",
-  "attributes": {
-    "kind": "research",
-    "poster_did": "did:key:z6Mkp1HugSrUcAXK6Xmi6qPA22r4DBSEZCyY5AwdFuhp9syf",
-    "status": "FUNDED",
-    "task_hash": "816b7c5f551524273443d890b2ebfa3a8a874ba728eac2678d71d3c1e0a5dc2d",
-    "task_id": "T_93826b9b55604862805d629b8f0dc99e",
-    "visibility": "public"
-  },
-  "causation": {
-    "method": "POST",
-    "path": "/api/v1/tasks",
-    "request_body_hash": "sha256:55c6a2b5e7713d88cd4dcc09baa0ec49f063146830ddc712cdaab6df765870c9",
-    "request_id": "fd77a6e997e849d0becc4c4117c1d202",
-    "request_signature": "UNb_eCdWhCzXlQiWbcb63SclCO4t9x8KWn5mF7qkHOaZ16rKh372WePTu4dAQRlpaQjGiEVJmBd7NtCfyn5BBg"
-  },
-  "server": {
-    "publisher_id": "agentforge-reference-server",
-    "key_id": "56475aa75463474c",
-    "signature": "8olAVCddQWburoBF0D00mlrk09TJJvyf9n1KOmCpe8Ygaml-MWAJWd7hnzFfbFY8WGvVeOrXIiBtSEY-UbHzDw"
-  }
-}
+```text
+method, path, request_body_hash, request_timestamp, request_id, request_signature
 ```
 
-Signing and verification rules are in
-[`protocol/v1/signing.md`](../protocol/v1/signing.md). The signature covers every
-field except `server.signature`, with `server` reduced to `publisher_id` and
-`key_id`, so a signature cannot be replayed under another publisher or key.
-`key_id` is the first 16 hex characters of `SHA256(publisher_public_key)` and
-changes on rotation.
+`request_timestamp` preserves the exact `X-Agent-Timestamp` string, not the
+server event time or a normalized number. `request_id` is the nonce. The hash is
+`sha256:` followed by SHA-256 of the raw body. An observer can reconstruct the
+actor signing bytes from these fields without receiving the private request
+body. `verify_actor_causation()` verifies that request signature; it does not
+prove the transition happened or authorize replay of the historical request.
 
-Retries republish byte-identical envelopes for the same row and key, so receivers
-deduplicate by `event_id`.
+Separately, `verify_envelope()` verifies the server publisher signature with a
+trusted public key. Both v1 and v2 use the same canonical-signing rule: sign all
+fields except `server.signature`, with the server object restricted to
+publisher ID and key ID. The publisher key never authenticates agent requests.
 
-## What must never be published
+Runtime validation uses the exact canonical JSON Schemas packaged as
+`agentforge_protocol` resources. Unknown fields, invalid types and constraints
+fail closed; error telemetry does not echo rejected values. CI checks resource
+parity and an installed wheel outside the repository.
 
-The raw event payload stays local. The envelope carries its `payload_hash` plus an
-allow-listed set of scalar identifiers and commitment hashes, so private task
-input, acceptance text, evidence bodies, API keys, wallet keys, and TCLK material
-cannot travel inside an envelope. Outbox payloads are identifier-only for the same
-reason: `TASK_CREATED` publishes `task_outbox_payload()` (identifiers plus
-`task_hash`) rather than the full task, and `PROOF_SUBMITTED` publishes
-`proof_hash` rather than the proof bundle.
+**Legacy policy:** old rows with causation but no timestamp retain the v1 shape
+and publish as `agentforge-event/1`. The timestamp is not recoverable from the
+stored body hash or event time, and is never invented. Their publisher signature
+can still be verified, but `verify_actor_causation()` returns false: complete
+independent actor verification is unavailable. The v1 schema is unchanged.
+Null actor/causation stays unattributed, including server-generated expiry and
+older unattributed rows; it is not evidence of a client signature.
 
-## Configuration
+V1-only receivers must add v2 support before operators enable new publishing.
+An envelope with missing v2 fields cannot become valid merely by relabeling its
+version. No API request format or database column changes are needed: the
+additional timestamp lives in the existing causation JSON column.
+
+Retries derive identical bytes for an unchanged row, publisher key and envelope
+implementation. Rotation changes signatures; development ephemeral keys change
+on process restart. Receivers deduplicate by stable `event_id`, not signature or
+envelope byte equality across rotations/upgrades. Delivery is **at-least-once**.
+
+## Data minimization
+
+Task creation queues identifiers plus `task_hash`; submission queues identifiers
+plus `proof_hash`, never full task input or proof bodies. Published attributes
+are scalar identifiers/commitments selected by an allowlist. This is not a
+content-aware secret detector: producers must not put sensitive text in allowed
+identifier/code fields. Raw event payloads are not published. The earlier
+nullable migration does not scrub historical stored payloads.
+
+## Configuration and startup
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `AGENTFORGE_GOSSIP_ENABLED` | `false` | Master switch for publishing outside the instance |
-| `AGENTFORGE_TECHNOCORE_PUBLISH_PATH` | *(empty)* | Operator-supplied publish path on the configured base URL |
-| `AGENTFORGE_EVENT_PUBLISHER_ID` | `agentforge-reference-server` | Publisher identity recorded in `server.publisher_id` |
-| `AGENTFORGE_EVENT_SIGNING_KEY` | *(empty)* | 32-byte Ed25519 seed, hex or base64url, from the secret manager |
-| `AGENTFORGE_TECHNOCORE_BASE_URL` | `https://technocore.chat` | Base URL the publish path is appended to |
-| `AGENTFORGE_OUTBOX_INTERVAL_SECONDS` | `5` | Worker tick interval |
-| `AGENTFORGE_OUTBOX_JITTER_SECONDS` | `0.5` | Bounded jitter so replicas do not poll in lockstep |
+| `AGENTFORGE_GOSSIP_ENABLED` | `false` | Explicit outbound-publication switch |
+| `AGENTFORGE_TECHNOCORE_PUBLISH_PATH` | empty | Operator-supplied path for a compatible transport |
+| `AGENTFORGE_TECHNOCORE_BASE_URL` | `https://technocore.chat` | Configured transport base; compatibility must be reviewed separately |
+| `AGENTFORGE_EVENT_PUBLISHER_ID` | `agentforge-reference-server` | 1–160 printable ASCII characters, also used in a transport header |
+| `AGENTFORGE_EVENT_SIGNING_KEY` | empty | 32-byte Ed25519 seed, hex/base64url, from the operator's secret manager |
+| `AGENTFORGE_OUTBOX_INTERVAL_SECONDS` | `5` | Polling interval |
+| `AGENTFORGE_OUTBOX_JITTER_SECONDS` | `0.5` | Bounded polling jitter for reliability |
 
-Publishing requires **both** the flag and a publish path. With either missing the
-adapter reports `enabled: false`, and the drain is a no-op: events stay `PENDING`
-with their attempt count untouched instead of being dead-lettered for a transport
-the operator never enabled. AgentForge does not invent a Technocore endpoint,
-payload contract, or receipt format; when the supported publication mechanism is
-published, configure it rather than guessing it.
+Publishing requires both the flag and path. Disabled publishing leaves attempts
+untouched and requires no publisher key, while claim reaping can continue.
+When enabled, worker startup and direct drains load/validate the publisher
+**before claiming events**. Missing production keys, invalid seeds or invalid
+publisher IDs raise configuration errors rather than consuming retry budgets.
+Development may use an ephemeral publisher key; production may not.
 
-Development and test runs may use an ephemeral in-process publisher key. It is
-never written to disk and never committed. **Production refuses to load an
-ephemeral key**: `AGENTFORGE_EVENT_SIGNING_KEY` must come from the deployment
-secret manager. Generate one with:
+This adapter does not implement a native Technocore signed lane or a TCLK frame.
+No endpoint, receipt semantics or key-distribution service is invented here.
 
-```bash
-python -c "import os,base64; print(base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip('='))"
-```
-
-## Running the worker
+## Database readiness and worker lifecycle
 
 ```bash
-python -m agentforge_server.worker          # continuous loop
-python -m agentforge_server.worker --once   # one reap + drain tick
+python -m alembic upgrade head
+python -m agentforge_server.worker
+python -m agentforge_server.worker --once
 ```
 
-`docker-compose.yml` and `docker-compose.dev.yml` run the worker as a separate
-`worker` service against the same database as the API. The loop stops cleanly on
-`SIGINT`/`SIGTERM` after the current tick, so a lease is never abandoned
-mid-publish.
+Startup checks required tables and columns; production also requires the exact
+migration head and rejects SQLite, consistently with API startup. Development
+`create_all` is for a fresh database, not an upgrade mechanism. Existing partial
+or old schemas fail with an actionable migration error; back up the database and
+run Alembic against that same database before restarting. Do not delete a volume
+or stamp a migration merely to bypass readiness checks.
 
-## Observability
+The reaper uses conditional writes and a consistent claim-before-task lock
+order. Only the transaction that expires an ACTIVE, still-expired lease may
+produce reputation, audit and outbox effects; they commit atomically. Heartbeat,
+inference and submission mutations acquire a conditional active-claim guard
+before using the claim. Stale reapers recheck current SQL state rather than
+undoing a renewed lease or submitted claim.
 
-`outbox_metrics(db)` returns counts only, and is safe to log on every tick:
+The worker runs separately from the API. SIGINT/SIGTERM stops new delivery claims
+after the current publish finishes. Forced termination or a transport timeout can
+still leave uncertainty about remote acceptance; leases expire and duplicates
+are possible. Stop grace must accommodate in-flight delivery. Polling jitter is
+ordinary server reliability behavior, unrelated to any external client's policy.
+
+## Retry and observability
+
+Claims refresh database state before using the attempt count for backoff and the
+10-attempt dead-letter decision. Final updates are owner-checked; a worker that
+lost its lease does not increment its committed-delivery count.
+
+`outbox_metrics(db)` exposes internal counts and timing fields:
 
 ```text
 pending_count, processing_count, delivered_count, dead_count
 oldest_pending_age_seconds, last_success_at, last_failure_at
 ```
 
-`outbox_events.last_error` records why the last attempt failed, and
-`last_attempt_at` records when it happened. Delivery is at-least-once with
-exponential backoff capped at one hour and a dead-letter state after 10 attempts.
-No HTTP metrics route is exposed: the MVP has no operator role to authorize one,
-and counters are not worth leaking to unauthenticated callers.
+`last_failure_at` reflects rows retaining a last error, not an immutable failure
+history. `last_error` is bounded and avoids generic exception-body disclosure.
+There is no unauthenticated metrics endpoint or automatic dead-letter replay.
 
-## Deliberately not implemented
-
-- No invented Technocore write contract, response semantics, or receipt handling.
-- No response body is treated as settlement, reputation, or eligibility evidence.
-- No gossip of private payloads, credentials, or key material.
-- No metrics endpoint, alerting rules, or dashboards in the repository.
-- No TCLK adapter and no FLOP settlement. Those remain later, separately approved
-  PRs.
+No TCLK/FLOP integration or external Activity Engine behavior is part of this
+worker. See [integration boundaries](INTEGRATION_BOUNDARIES.md).

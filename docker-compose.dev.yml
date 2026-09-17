@@ -7,6 +7,12 @@ services:
       dockerfile: Dockerfile.dev
     ports:
       - "8080:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
     environment:
       AGENTFORGE_ENV: development
       AGENTFORGE_AUTO_CREATE_SCHEMA: "true"
@@ -22,6 +28,7 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     command: ["python", "-m", "agentforge_server.worker"]
+    stop_grace_period: 60s
     environment:
       AGENTFORGE_ENV: development
       AGENTFORGE_AUTO_CREATE_SCHEMA: "true"
@@ -32,7 +39,8 @@ services:
     volumes:
       - agentforge_devdata:/data
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   agentforge_devdata:

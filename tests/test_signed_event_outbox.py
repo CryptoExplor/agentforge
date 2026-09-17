@@ -1,4 +1,4 @@
-"""Signed dual-attribution event outbox - PR #3.
+"""Signed dual-attribution event outbox.
 
 Covers the canonical event envelope, actor versus server attribution, causation
 from verified requests, redaction of private payloads, feature-flagged transport,
@@ -53,7 +53,7 @@ from agentforge_server.worker import run_once, run_worker
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ENVELOPE_SCHEMA = json.loads(
-    (REPO_ROOT / "protocol" / "v1" / "event-envelope.schema.json").read_text()
+    (REPO_ROOT / "protocol" / "v1" / "event-envelope-v2.schema.json").read_text()
 )
 SCHEMA_VALIDATOR = Draft202012Validator(ENVELOPE_SCHEMA)
 
@@ -213,6 +213,9 @@ def test_actor_and_server_attribution_are_both_present_and_verifiable():
     causation = {
         "request_id": "nonce-1",
         "request_signature": "sig",
+        "request_timestamp": "1760000000",
+        "method": "POST",
+        "path": "/api/v1/tasks",
         "request_body_hash": "sha256:" + "a" * 64,
     }
     envelope = build_envelope(
@@ -234,6 +237,9 @@ def test_server_signature_covers_actor_causation_and_payload_hash():
             causation={
                 "request_id": "nonce-1",
                 "request_signature": "sig",
+                "request_timestamp": "1760000000",
+                "method": "POST",
+                "path": "/api/v1/tasks",
                 "request_body_hash": "sha256:" + "a" * 64,
             }
         ),
@@ -629,7 +635,7 @@ def test_malformed_envelopes_are_rejected():
         assert not verify_envelope(broken, publisher.public_key_bytes)
 
     unknown_version = json.loads(canonical_json(envelope))
-    unknown_version["version"] = "agentforge-event/2"
+    unknown_version["version"] = "agentforge-event/999"
     with pytest.raises(EnvelopeError, match="unsupported envelope version"):
         validate_envelope(unknown_version)
 
@@ -640,12 +646,12 @@ def test_malformed_envelopes_are_rejected():
 
     bad_actor = json.loads(canonical_json(envelope))
     bad_actor["actor"] = {"did": "not-a-did"}
-    with pytest.raises(EnvelopeError, match="did:key"):
+    with pytest.raises(EnvelopeError, match="schema violation"):
         validate_envelope(bad_actor)
 
     bad_causation = json.loads(canonical_json(envelope))
     bad_causation["causation"] = {"request_id": "x"}
-    with pytest.raises(EnvelopeError, match="causation requires"):
+    with pytest.raises(EnvelopeError, match="schema violation"):
         validate_envelope(bad_causation)
 
 

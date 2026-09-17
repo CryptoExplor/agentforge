@@ -7,6 +7,12 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
     environment:
       AGENTFORGE_ENV: production
       AGENTFORGE_AUTO_CREATE_SCHEMA: "false"
@@ -25,8 +31,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    # The API applies migrations on start; retry until the schema is ready.
+    # The API completes schema startup before becoming healthy.
     command: ["python", "-m", "agentforge_server.worker"]
+    stop_grace_period: 60s
     restart: on-failure
     environment:
       AGENTFORGE_ENV: production
@@ -40,7 +47,7 @@ services:
       postgres:
         condition: service_healthy
       api:
-        condition: service_started
+        condition: service_healthy
   postgres:
     image: postgres:16-alpine
     environment:

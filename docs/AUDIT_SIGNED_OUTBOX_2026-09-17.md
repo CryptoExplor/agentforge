@@ -1,5 +1,30 @@
 # Signed-event outbox audit — 2026-09-17
 
+## Remediation status — current session branch
+
+The findings below are the historical audit of `3986dd1`, not the current
+verification result. Their original seven probes have moved from `audits/` to
+`tests/test_outbox_regressions.py` and now pass in default discovery. The
+remediation includes atomic claim expiry/claim-use guards, v2 complete causation
+with legacy v1 verification, schema-backed runtime validation, publisher
+preflight, fresh retry state, and table/column/migration readiness checks.
+
+An additional submission regression fixes a missing proof commitment: the
+outbox now uses `submission.proof_hash` rather than reading a nonexistent hash
+from the proof object. No full proof body is published.
+
+Additional tests cover tampering, legacy compatibility, configuration errors,
+owner loss, shutdown between deliveries, data-preserving migrations and
+heartbeat/submission/reaper interleavings. The current local suite has **99
+passing tests** (2 dependency deprecation warnings). Contracts and packaging
+checks are recorded in `scripts/check_contracts.py` and CI.
+
+PostgreSQL regression CI uses an isolated schema per test; local PostgreSQL
+installation was blocked by unreachable package repositories. Do not claim
+PostgreSQL/Compose execution success from SQLite results. No independent audit,
+merge approval or external integration is implied. The local auditing agent
+should rerun these checks before the human maintainer makes merge decisions.
+
 ## Scope and disposition
 
 Audited checkout: `3986dd16d640830930c8a80a1f5336e78c023f6e`, on

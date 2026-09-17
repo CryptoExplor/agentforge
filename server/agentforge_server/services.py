@@ -8,7 +8,7 @@ import uuid
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.orm import Session
 
 from .crypto import canonical_json, sha256_json
@@ -121,55 +121,88 @@ def mark_task_deadline_expired(db: Session, task: Task, claim: Claim | None = No
     db.commit()
 
 
+def guard_active_claim(db: Session, claim: Claim) -> bool:
+    """Serialize claim use with expiry, holding the write lock until commit.
+
+    A plain ORM read (or SELECT FOR UPDATE on SQLite) is not sufficient. Every
+    heartbeat/inference/submission path must win this conditional write before
+    changing the claim or its task. Refresh prevents stale identity-map state
+    from authorizing an already-expired or submitted claim.
+    """
+    won = db.execute(
+        update(Claim)
+        .where(Claim.id == claim.id, Claim.status == "ACTIVE", Claim.lease_expires_at > now())
+        .values(status=Claim.status)
+        .execution_options(synchronize_session=False)
+    ).rowcount == 1
+    db.refresh(claim)
+    # The conditional write may have waited on another transaction. Recheck
+    # wall time while holding the lock, before authorizing the caller's work.
+    return won and claim.status == "ACTIVE" and claim.lease_expires_at > now()
+
+
 def reap_expired_claims(db: Session) -> int:
-    """Reopen claims whose lease expired; safe to call on every worker tick."""
+    """Expire each claim once; side effects belong to the CAS winner only.
+
+    Lock order is claim then task, shared with active-claim mutations. Candidate
+    reads are hints only: both claim and task predicates are rechecked by SQL.
+    All state changes, reputation, audit and outbox inserts commit together.
+    """
     expired = db.scalars(
-        select(Claim).where(
-            Claim.status == "ACTIVE",
-            Claim.lease_expires_at <= now(),
-        )
+        select(Claim).where(Claim.status == "ACTIVE", Claim.lease_expires_at <= now())
+        .order_by(Claim.id)
     ).all()
     count = 0
+    touched = False
     for claim in expired:
+        # This read can be stale; never mutate this object before winning SQL.
         task = db.get(Task, claim.task_id)
-        claim.status = "EXPIRED"
-        claim.updated_at = now()
-        if task and task.claim_id == claim.id and task.status in {"CLAIMED", "EXECUTING"}:
-            expired_at_deadline = task.deadline is not None and task.deadline <= now()
-            task.status = "EXPIRED" if expired_at_deadline else "OPEN"
-            task.claim_id = None
-            task.state_version += 1
-            task.updated_at = now()
-            add_reputation(
-                db,
-                did=claim.executor_did,
-                role="executor",
-                kind="claim_timeout",
-                delta=-0.1,
-                reference_type="claim",
-                reference_id=claim.id,
+        timestamp = now()
+        won = db.execute(
+            update(Claim)
+            .where(Claim.id == claim.id, Claim.status == "ACTIVE", Claim.lease_expires_at <= timestamp)
+            .values(status="EXPIRED", updated_at=timestamp)
+            .execution_options(synchronize_session=False)
+        ).rowcount == 1
+        db.refresh(claim)
+        if not won:
+            continue
+        touched = True
+        if task is None:
+            continue
+        transitioned = db.execute(
+            update(Task)
+            .where(Task.id == claim.task_id, Task.claim_id == claim.id,
+                   Task.status.in_(["CLAIMED", "EXECUTING"]))
+            .values(
+                status=case((Task.deadline <= timestamp, "EXPIRED"), else_="OPEN"),
+                claim_id=None, state_version=Task.state_version + 1, updated_at=timestamp,
             )
-            expiration_kind = "TASK_EXPIRED" if expired_at_deadline else "CLAIM_EXPIRED"
-            add_audit(
-                db,
-                actor_did=None,
-                kind=expiration_kind,
-                aggregate_type="task",
-                aggregate_id=task.id,
-                payload={
-                    "claim_id": claim.id,
-                    "executor_did": claim.executor_did,
-                    "reason": "deadline" if expired_at_deadline else "lease",
-                },
-            )
-            queue_outbox(
-                db,
-                kind=expiration_kind,
-                aggregate_id=task.id,
-                payload={"task_id": task.id, "claim_id": claim.id},
-            )
-            count += 1
-    if count:
+            .execution_options(synchronize_session=False)
+        ).rowcount == 1
+        db.refresh(task)
+        if not transitioned:
+            continue
+        expired_at_deadline = task.status == "EXPIRED"
+        add_reputation(
+            db, did=claim.executor_did, role="executor", kind="claim_timeout",
+            delta=-0.1, reference_type="claim", reference_id=claim.id,
+        )
+        expiration_kind = "TASK_EXPIRED" if expired_at_deadline else "CLAIM_EXPIRED"
+        add_audit(
+            db, actor_did=None, kind=expiration_kind, aggregate_type="task",
+            aggregate_id=task.id,
+            payload={"claim_id": claim.id, "executor_did": claim.executor_did,
+                     "reason": "deadline" if expired_at_deadline else "lease"},
+        )
+        queue_outbox(
+            db, kind=expiration_kind, aggregate_id=task.id,
+            payload={"task_id": task.id, "claim_id": claim.id},
+        )
+        count += 1
+    # Even a lost conditional write can hold locks. End the reaper transaction
+    # when candidates were inspected; its callers invoke it before domain work.
+    if touched or expired:
         db.commit()
     return count
 

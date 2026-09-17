@@ -67,6 +67,7 @@ from .services import (
     independence_failures,
     escrow_settle,
     fund_task,
+    guard_active_claim,
     mark_task_deadline_expired,
     new_id,
     now,
@@ -95,7 +96,7 @@ async def lifespan(_: FastAPI):
     if settings.environment == "production":
         if database.DATABASE_URL.startswith("sqlite"):
             raise RuntimeError("SQLite schema is not allowed in production")
-        verify_schema()
+        verify_schema(require_migrations=True)
     elif settings.auto_create_schema:
         init_db()
     else:
@@ -148,6 +149,8 @@ def create_app() -> FastAPI:
         idempotency_key = request.headers.get("Idempotency-Key")
         if not all([did, timestamp, nonce, signature]):
             raise http_error(401, "signed agent headers are required")
+        if len(timestamp or "") > 160:
+            raise http_error(401, "request timestamp is too long")
         if len(nonce or "") > 160:
             raise http_error(401, "request nonce is too long")
         if require_idempotency and not idempotency_key:
@@ -184,6 +187,7 @@ def create_app() -> FastAPI:
         request.state.causation = {
             "request_id": nonce,
             "request_signature": signature,
+            "request_timestamp": timestamp,
             "request_body_hash": "sha256:" + sha256_bytes(raw_body),
             "method": request.method.upper(),
             "path": request.url.path,
@@ -767,15 +771,13 @@ def create_app() -> FastAPI:
         claim = db.get(Claim, claim_id)
         if not claim or claim.executor_did != did:
             raise http_error(404, "claim not found")
-        task = db.get(Task, claim.task_id)
+        if not guard_active_claim(db, claim):
+            raise http_error(409, "claim is no longer active")
+        task = db.get(Task, claim.task_id, populate_existing=True)
         if task and task.deadline and task.deadline <= now():
             discard_idempotency(request, db)
             mark_task_deadline_expired(db, task, claim)
             raise http_error(409, "task deadline has passed")
-        if claim.status != "ACTIVE" or claim.lease_expires_at <= now():
-            discard_idempotency(request, db)
-            reap_expired_claims(db)
-            raise http_error(409, "claim is no longer active")
         claim.heartbeat_at = now()
         claim.lease_expires_at = claim.heartbeat_at + CLAIM_LEASE_SECONDS
         claim.updated_at = claim.heartbeat_at
@@ -801,10 +803,9 @@ def create_app() -> FastAPI:
         claim = db.get(Claim, task.claim_id)
         if not claim or claim.executor_did != did or claim.status != "ACTIVE":
             raise http_error(403, "agent does not own an active claim")
-        if claim.lease_expires_at <= now():
-            discard_idempotency(request, db)
-            reap_expired_claims(db)
-            raise http_error(409, "claim expired")
+        if not guard_active_claim(db, claim):
+            raise http_error(409, "claim is no longer active")
+        db.refresh(task)
         if task.deadline and task.deadline <= now():
             discard_idempotency(request, db)
             mark_task_deadline_expired(db, task, claim)
@@ -884,10 +885,9 @@ def create_app() -> FastAPI:
             raise http_error(403, "agent does not own this task")
         if claim.status != "ACTIVE":
             raise http_error(409, "claim is not submit-capable")
-        if claim.lease_expires_at <= now():
-            discard_idempotency(request, db)
-            reap_expired_claims(db)
-            raise http_error(409, "claim lease expired")
+        if not guard_active_claim(db, claim):
+            raise http_error(409, "claim is no longer active")
+        db.refresh(task)
         if task.deadline and task.deadline <= now():
             discard_idempotency(request, db)
             mark_task_deadline_expired(db, task, claim)
@@ -948,7 +948,7 @@ def create_app() -> FastAPI:
         claim.status = "SUBMITTED"
         task.updated_at = now()
         add_audit(db, actor_did=did, kind="TASK_SUBMITTED", aggregate_type="submission", aggregate_id=submission.id, payload={"task_id": task.id, "proof_hash": submission.proof_hash})
-        queue_request_outbox(request, db, kind="PROOF_SUBMITTED", aggregate_id=submission.id, payload={"task_id": task.id, "submission_id": submission.id, "proof_hash": proof.get("proof_hash")})
+        queue_request_outbox(request, db, kind="PROOF_SUBMITTED", aggregate_id=submission.id, payload={"task_id": task.id, "submission_id": submission.id, "proof_hash": submission.proof_hash})
         response_body = submission_view(submission)
         finish_idempotency(request, response_body)
         db.commit()
