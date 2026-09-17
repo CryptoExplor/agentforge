@@ -12,9 +12,35 @@ services:
       AGENTFORGE_AUTO_CREATE_SCHEMA: "false"
       AGENTFORGE_DATABASE_URL: postgresql+psycopg://agentforge:agentforge@postgres:5432/agentforge
       AGENTFORGE_ENABLE_MOCK_FAUCET: "false"
+      # Outbox delivery and claim reaping run in a separate process. Publishing
+      # stays disabled until an operator sets AGENTFORGE_GOSSIP_ENABLED and
+      # AGENTFORGE_TECHNOCORE_PUBLISH_PATH, so no remote endpoint is assumed.
+      AGENTFORGE_GOSSIP_ENABLED: "false"
+      # AGENTFORGE_EVENT_SIGNING_KEY: supply from the deployment secret manager.
+      # Production refuses an ephemeral publisher key.
     depends_on:
       postgres:
         condition: service_healthy
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # The API applies migrations on start; retry until the schema is ready.
+    command: ["python", "-m", "agentforge_server.worker"]
+    restart: on-failure
+    environment:
+      AGENTFORGE_ENV: production
+      AGENTFORGE_AUTO_CREATE_SCHEMA: "false"
+      AGENTFORGE_DATABASE_URL: postgresql+psycopg://agentforge:agentforge@postgres:5432/agentforge
+      AGENTFORGE_ENABLE_MOCK_FAUCET: "false"
+      AGENTFORGE_GOSSIP_ENABLED: "false"
+      AGENTFORGE_OUTBOX_INTERVAL_SECONDS: "5"
+      # AGENTFORGE_EVENT_SIGNING_KEY: supply from the deployment secret manager.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
   postgres:
     image: postgres:16-alpine
     environment:

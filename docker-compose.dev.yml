@@ -12,8 +12,27 @@ services:
       AGENTFORGE_AUTO_CREATE_SCHEMA: "true"
       AGENTFORGE_DATABASE_URL: sqlite:////data/agentforge.db
       AGENTFORGE_ENABLE_MOCK_FAUCET: "true"
+      # Local development publishes nothing unless both variables are set.
+      AGENTFORGE_GOSSIP_ENABLED: "false"
+      AGENTFORGE_OUTBOX_INTERVAL_SECONDS: "2"
     volumes:
       - agentforge_devdata:/data
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    command: ["python", "-m", "agentforge_server.worker"]
+    environment:
+      AGENTFORGE_ENV: development
+      AGENTFORGE_AUTO_CREATE_SCHEMA: "true"
+      AGENTFORGE_DATABASE_URL: sqlite:////data/agentforge.db
+      AGENTFORGE_ENABLE_MOCK_FAUCET: "true"
+      AGENTFORGE_GOSSIP_ENABLED: "false"
+      AGENTFORGE_OUTBOX_INTERVAL_SECONDS: "2"
+    volumes:
+      - agentforge_devdata:/data
+    depends_on:
+      - api
 
 volumes:
   agentforge_devdata:
