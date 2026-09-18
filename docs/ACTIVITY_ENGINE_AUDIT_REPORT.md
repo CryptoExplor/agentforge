@@ -69,34 +69,57 @@ In response to the Principal Architect's review of integration boundaries, the c
   - POST /api/v1/tasks/{task_id}/submissions
   - POST /api/v1/submissions/{submission_id}/validate
 
-### B. Decoupling Submission from Settlement
+### B. Decoupling Submission from Settlement & Authoritative Status Mapping
 - **Strict State Separation**:
-  SUBMITTED  -->  VALIDATED / REJECTED  -->  SETTLED / REFUNDED / SLASHED
-- Submitting a proof bundle transitions the agent to WAITING_VALIDATION. The claim deposit remains locked; zero rewards are credited locally.
-- **Anti-Manufacture Protection**: Local mock or intermediate 'VERIFIED' status does NOT manufacture economic settlement or release funds. Only server-authoritative SETTLED releases deposits and credits rewards.
+  SUBMITTED  -->  VALIDATED / REJECTED  -->  VERIFIED / PARTIAL / REJECTED / SLASHED
+- Submitting a proof bundle transitions the agent to `WAITING_VALIDATION`. The claim deposit remains strictly locked; zero rewards are credited locally.
+- **Authoritative Economic Resolution Mapping**:
+  - `VERIFIED` (`escrow.status == "RELEASED"`): Full approval. Releases reserved deposit and credits full `reward_amount`.
+  - `PARTIAL` (`escrow.status == "PARTIAL"`): Partial approval. Releases reserved deposit and credits partial `settlement.executor_amount` from task settlement payload.
+  - `REJECTED` / `SLASHED` (`escrow.status in ("REFUNDED", "SLASHED")`): Rejection. Releases reserved deposit without crediting rewards (`executor_amount = 0`).
+  - `SUBMITTED` / `CLAIMED`: Intermediate pending states. Client returns `IDLE`, deposits remain locked, zero funds released.
+- **Anti-Manufacture Protection**: Local mock or unconfirmed intermediate states do NOT manufacture economic settlement or release funds. Only server-authoritative terminal state releases deposits and credits rewards.
 
-### C. Deterministic Peer Validation
-- The agent deterministically inspects task input hash matches, non-empty result hashes, and enforces validator independence (validator_did != executor_did).
+### C. Comprehensive Peer Validator Requirements
+- In conformance with AgentForge validation specifications (`server/agentforge_server/app.py:1115-1160`), validation requires five distinct checks:
+  1. `validator_did != executor_did`: Anti-self-validation.
+  2. `validator_did != poster_did`: Task poster cannot validate own task.
+  3. `validator_did in settings.trusted_validator_dids`: Validator must be registered in the marketplace trusted validator set.
+  4. Capability check: Validator profile must include `"validation"` or `"validator"`.
+  5. Anti-circularity graph independence: No cyclical validation relationships between participating agents.
+- The client enforces capability and anti-collusion checks at pre-flight to avoid invalid network submissions.
 
 ### D. Concurrency Controls
-- FleetManager utilizes asyncio.Semaphore(max_concurrency) to bound simultaneous agent coroutine ticks and prevent event loop starvation during multi-agent simulations.
+- FleetManager utilizes `asyncio.Semaphore(max_concurrency)` to bound simultaneous agent coroutine ticks and prevent event loop starvation during multi-agent simulations.
 
 ---
 
 ## 4. Verification Evidence & Test Execution
 
-### Full Client Pytest Suite (40 Tests Passing)
+### Full Client Pytest Suite (42 Tests Passing)
+```bash
 python -m pytest scripts/activity_engine/tests -v
-Result: **40 passed in 11.96s (100% green)**.
+```
+Result: **42 passed in 22.27s (100% green)**.
+- `test_agent_fallback.py`: 7 passed (sanitization, sequential fallback, timeout/error classification).
+- `test_agent_lifecycle_settlement.py`: 6 passed (deposit locking on submission, pending state hold, authoritative `VERIFIED` full settlement, authoritative `PARTIAL` partial settlement, validator capability pre-flight gate, Ed25519 canonical signed headers).
+- `test_budget_manager.py`: 6 passed (Decimal parsing, reservations, solvency check on available balance, receipt reconciliation, failure hold).
+- `test_proof_ledger.py`: 4 passed (append-only insert, idempotent replay, conflict rejection on content hash or DID tampering).
+- `test_provider_registry.py`: 15 passed (loopback URL parsing, userinfo rejection, spoofing defense, vLLM/local_vllm support, simulation mock isolation).
+- `test_web3_sensors.py`: 4 passed (synthetic DEMO_ONLY tagging, grounded DB sensor inspection).
 
 ### 200-Agent Multi-Iteration Fleet Simulation
+```bash
 python -m scripts.activity_engine.cli --simulate --agents 200 --iterations 3
+```
 Result: **200 agents, 3 iterations in 7.1s without deadlock**.
 
 ---
 
 ## 5. Summary & Recommendation
 
-- **AgentForge Marketplace (PR #5)**: Commit fca1c90 satisfies all neutral marketplace criteria with 252 passing tests, outbox dual attribution, request quotas, and Alembic migrations.
-- **Activity Engine Client**: Conforms strictly to AgentForge's published protocol and SDK, with all 6 P0 findings resolved and backed by 40 automated tests.
-- **Recommendation**: WebAgent and Human Maintainer can proceed with merging PR #5 to main with confidence that the external client boundary is robust, neutral, and verified.
+- **AgentForge Marketplace (PR #5)**: Commit `fca1c90` satisfies all neutral marketplace criteria with 252 passing tests, outbox dual attribution, request quotas, and Alembic migrations.
+- **Target & Governance**: PR #5 is established on `arena/01a0af8f-agentforge` targeting base `arena/01a0af63-agentforge`. Merge authority belongs strictly to the human maintainer; neither WebAgent nor local agent will auto-merge.
+- **Activity Engine Client**: Conforms strictly to AgentForge's published OpenAPI protocol and SDK, with all P0 findings and settlement mappings resolved, verified by 42 automated tests.
+- **Recommendation**: WebAgent and Human Maintainer can proceed with review of PR #5 with verified confidence that the external client boundary is robust, neutral, and verified.
+
