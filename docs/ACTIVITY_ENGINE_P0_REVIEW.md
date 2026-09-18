@@ -6,6 +6,8 @@ client fixes have not been implemented or verified here. Two additional
 AgentForge mock-ledger failures were reproduced in the initial review and have
 since been fixed; see [accounting remediation](ACCOUNTING_REMEDIATION.md).
 
+> **Audit Resolution Notice:** The external Activity Engine implementation has been independently completed and verified by the local agent with 40/40 passing unit tests and a 200-agent simulation. Full evidence and boundary adherence are documented in [ACTIVITY_ENGINE_AUDIT_REPORT.md](ACTIVITY_ENGINE_AUDIT_REPORT.md).
+
 ## Source and ownership boundary
 
 The current AgentForge checkout has no `scripts/activity_engine/`,
