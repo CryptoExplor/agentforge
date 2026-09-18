@@ -14,5 +14,55 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
       - run: pip install -e '.[dev]'
-      - run: python -m py_compile server/agentforge_server/*.py server/agentforge_server/adapters/*.py sdk/python/agentforge_sdk/*.py
+      - run: python -m compileall -q server sdk tests examples protocol
+      - run: python scripts/check_contracts.py
       - run: pytest -q
+      - name: Build wheel and verify installed schema resources
+        run: |
+          pip wheel --no-deps --wheel-dir dist .
+          python -m venv /tmp/agentforge-wheel
+          /tmp/agentforge-wheel/bin/pip install dist/*.whl
+          cd /tmp
+          /tmp/agentforge-wheel/bin/python -c 'from agentforge_server.event_envelope import _VALIDATORS; assert len(_VALIDATORS) == 2; from agentforge_server.validators.result_schema import validate_result_schema; assert validate_result_schema({}, True) == (True, ""); from agentforge_server.admission import consume'
+
+  postgres-audit-regressions:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: agentforge
+          POSTGRES_PASSWORD: agentforge_test
+          POSTGRES_DB: agentforge_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agentforge -d agentforge_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Disposable CI-only database; each test creates and drops its own schema.
+      AGENTFORGE_TEST_POSTGRES_URL: postgresql+psycopg://agentforge:agentforge_test@localhost:5432/agentforge_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[dev,postgres]'
+      - run: pytest -q tests/test_outbox_regressions.py tests/test_public_exposure.py tests/test_accounting_regressions.py tests/test_runtime_hardening.py
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e '.[dev,postgres]'
+      - name: Audit the resolved application and test dependencies
+        run: |
+          pip freeze --exclude-editable > /tmp/agentforge-resolved.txt
+          python -m venv /tmp/agentforge-auditor
+          /tmp/agentforge-auditor/bin/pip install 'pip-audit>=2.9,<3'
+          /tmp/agentforge-auditor/bin/pip-audit --disable-pip --no-deps -r /tmp/agentforge-resolved.txt

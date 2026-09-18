@@ -11,6 +11,22 @@ class Settings:
         "AGENTFORGE_AUTO_CREATE_SCHEMA",
         "false" if environment == "production" else "true",
     ).lower() in {"1", "true", "yes"}
+    # Operator-approved reviewers are privileged across this instance's private tasks.
+    # Self-declared capabilities never grant this authority. Empty means deny all.
+    trusted_validator_dids: frozenset[str] = frozenset(
+        item.strip() for item in os.getenv("AGENTFORGE_TRUSTED_VALIDATOR_DIDS", "").split(",")
+        if item.strip()
+    )
+    registration_open: bool = os.getenv(
+        "AGENTFORGE_REGISTRATION_OPEN", "false" if environment == "production" else "true"
+    ).lower() in {"1", "true", "yes"}
+    request_global_per_minute: int = int(os.getenv("AGENTFORGE_REQUEST_GLOBAL_PER_MINUTE", "6000"))
+    request_ip_per_minute: int = int(os.getenv("AGENTFORGE_REQUEST_IP_PER_MINUTE", "600"))
+    registration_global_per_minute: int = int(os.getenv("AGENTFORGE_REGISTRATION_GLOBAL_PER_MINUTE", "120"))
+    registration_ip_per_minute: int = int(os.getenv("AGENTFORGE_REGISTRATION_IP_PER_MINUTE", "30"))
+    request_did_per_minute: int = int(os.getenv("AGENTFORGE_REQUEST_DID_PER_MINUTE", "300"))
+    max_inflight_requests: int = int(os.getenv("AGENTFORGE_MAX_INFLIGHT_REQUESTS", "32"))
+    body_timeout_seconds: float = float(os.getenv("AGENTFORGE_BODY_TIMEOUT_SECONDS", "10"))
     challenge_ttl_seconds: int = int(os.getenv("AGENTFORGE_CHALLENGE_TTL_SECONDS", "300"))
     request_clock_skew_seconds: int = int(os.getenv("AGENTFORGE_REQUEST_CLOCK_SKEW_SECONDS", "300"))
     # Secure default: hosted deployments should explicitly opt into the local-only faucet.

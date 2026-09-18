@@ -1,127 +1,183 @@
-# AgentForge audit-fix verification
+# AgentForge audit and verification record
 
-**Verification date:** 2026-09-15 (Asia/Calcutta); re-verified on `main` 2026-09-17 (Asia/Calcutta)
-**Baseline:** frozen pre-testnet MVP, plus merged PR #1 (settlement provider boundary) and PR #2 (asset and mode guardrails)
-**Result:** local verification passed; PostgreSQL execution remains an explicit follow-up because the sandbox had no PostgreSQL tooling
+**Canonical evidence record — 2026-09-18 (Asia/Calcutta).**
+Implementation-side source review and local verification of the review revision. **Not an independent audit, merge approval or production certification.**
+For the actual local/remote branch and PR snapshot, see
+[PROJECT_STATUS.md](PROJECT_STATUS.md). Reviewers must fetch the published PR
+head and record its SHA; historical CI at `bd6bf59` does not cover the new patch.
 
-This document is the review map for the P0/P1/P2 audit fixes. It records the implementation boundary without turning future provider work into part of the MVP.
+## Scope reviewed
 
-## Verification commands
+Authentication and replay; private reads and validator authorization; admission
+and schema/resource limits; task/claim/submission/dispute transitions; ledger,
+escrow and rollback; provenance/provider boundaries; envelope signing, publisher,
+outbox and worker; migration/startup guards; Python SDK identity persistence,
+packaging/dependencies and documentation consistency.
 
-Run from the repository root after installing the development dependencies:
+This combines source inspection, invariant probes, integration/concurrency tests
+and advisory scanning. It cannot establish the absence of every vulnerability.
+The separate Activity Engine source was unavailable and was not audited.
 
-```bash
-python -m pip install -e '.[dev,postgres]'
-python -m pytest -q
-python -m compileall -q server sdk tests examples
+## PR #4 findings F1–F6: current implementation cross-check
 
-python - <<'PY'
-import json
-from pathlib import Path
-from jsonschema import Draft202012Validator
-for path in sorted(Path("protocol/v1").glob("*.schema.json")):
-    Draft202012Validator.check_schema(json.loads(path.read_text()))
-    print("OK", path)
-PY
+| Finding | Current implementation | Regression evidence |
+|---|---|---|
+| F1: non-atomic expired-lease reclamation | SQL claim/task guards; expiry, reputation, audit and outbox commit together | Competing reapers, active-user/reaper interleavings, injected side-effect rollback |
+| F2: incomplete request causation | New envelopes use `agentforge-event/2`, preserving the exact signed timestamp, method, path, body hash, nonce and signature | Actor signature reconstruction and tampering; non-normalized timestamp; honest legacy v1 handling |
+| F3: configuration failures consume retries | Publisher preflight before event claiming/ticks; disabled transport is a no-op | Missing/invalid production key, empty queue, disabled worker, unchanged attempts |
+| F4: loose handwritten envelope checks | Versioned package-resource JSON Schemas with strict fields and sanitized errors | Extra server fields, malformed/oversized values, both versions and installed wheel |
+| F5: stale schema accepted at startup | Required table/column checks; production also requires the Alembic revision | Stale schemas, additive migration preservation, production startup |
+| F6: stale ORM attempt counts | Conditional claim, then explicit refreshed read with `populate_existing=True` | Stale cached attempts, retry ceiling and lost ownership |
 
-python - <<'PY'
-import json
-from pathlib import Path
-from agentforge_server.app import app
-expected = app.openapi()
-actual = json.loads(Path("protocol/v1/openapi.json").read_text())
-assert actual == expected, "protocol/v1/openapi.json is stale"
-print("OPENAPI_MATCH")
-PY
+Correction to the pasted summary: F6 does **not** currently use `RETURNING` to read
+outbox attempt counts; refreshing the claimed row provides that guarantee. Other
+atomic operations do use `RETURNING`. Test-file line counts are not acceptance
+criteria; the outbox regression file contains 47 collected cases.
 
-rm -f /tmp/agentforge-downgrade.db
-AGENTFORGE_DATABASE_URL=sqlite:////tmp/agentforge-downgrade.db python -m alembic upgrade head
-AGENTFORGE_DATABASE_URL=sqlite:////tmp/agentforge-downgrade.db python -m alembic downgrade base
-AGENTFORGE_DATABASE_URL=sqlite:////tmp/agentforge-downgrade.db python -m alembic upgrade head
-AGENTFORGE_DATABASE_URL=sqlite:////tmp/agentforge-downgrade.db python -m alembic current
+Complete causation verifies the caller's signature over the committed request
+fields. It does **not** independently prove successful execution, task truth,
+current authorization or receipt validity. Publisher verification still requires
+a separately trusted publisher key. Legacy v1 cannot acquire a missing timestamp
+retroactively. See [EVENT_OUTBOX.md](EVENT_OUTBOX.md).
+
+## Additional findings addressed
+
+- **D1–D6:** operator reviewer grants, bounded schema/ingress, atomic shared quotas,
+  search ordering and bounded decimal parsing. Root-only schema dialect
+  declarations close the previously reproduced validator-budget escape.
+  [Technical policies](SECURITY_REMEDIATION.md).
+- **Accounting/lifecycle:** exact money, atomic balances/key replay, concurrent
+  account creation, terminal escrow guard, validation/dispute serialization,
+  cancel/claim exclusion and cross-task executor claim limits.
+  [Findings and compatibility](ACCOUNTING_REMEDIATION.md).
+- **Mock cache retention:** previously unbounded private inference payloads now
+  have a 64-entry and 4 MiB serialized-content LRU budget. This is not an RSS cap.
+  Oversized entries are not cached; evicted direct-provider lookups raise
+  `KeyError`. HTTP session retrieval remains SQL-backed and authorized.
+- **Configuration logging:** transport status no longer echoes the configured
+  base URL, which could contain credentials in userinfo, paths, query or fragment.
+  `base_url` in the status object is a `<configured>` marker; actual transport
+  configuration is unchanged.
+- **SDK identity files:** same-directory temporary files are private at creation
+  (0600 on POSIX), flushed/fsynced and atomically replaced. Target symlinks are not
+  followed; failed writes/replacements preserve the old identity and remove the
+  temporary file. A trusted parent directory is still required; this is not a
+  key vault or a claim about Windows ACLs or directory-fsync crash durability.
+- **Cached provider configuration:** `get_settlement_provider()` rejects invalid
+  current configuration even with a populated singleton or injected override.
+  Errors do not echo arbitrary configuration values. This is checked at provider
+  resolution, not a new startup validation or hot-reload mechanism.
+- **Dependency advisories:** upgraded server and standalone SDK requirements to
+  `cryptography>=50.0.1,<51`; tested with 50.0.1. No custom cryptography or signing
+  format change was introduced.
+
+## Latest and prior local results
+
+Python 3.11, `cryptography` 50.0.1, disposable test data only.
+The latest runtime follow-up changed only settlement-provider resolution and its tests;
+the full suite was rerun before review publication:
+configuration is now validated before returning a cached or injected provider.
+Six of the new cases failed before the fix; all sixteen now pass. Supported
+`mock`/`local` aliases and valid test overrides remain compatible. This does not
+implement live configuration reload or the external client's provider registry.
+PostgreSQL, wheels and advisory scanning below are explicitly prior-run evidence;
+they were not rerun for this configuration-only follow-up.
+
+| Check | Observed result |
+|---|---|
+| Latest default full suite | **254 passed, 3 skipped**, 2 dependency warnings, 25.79s |
+| New provider-resolution regressions | **16 passed**, 0.36s; before fix: 6 failed, 10 passed |
+| Prior PostgreSQL-selected audit suites | **184 passed**, no skips, 2 warnings, 33.47s |
+| Standalone ledger invariant probe | Both invariants pass; exit 0 |
+| Canonical schemas and packaged resources | **7 match** |
+| Generated/published OpenAPI | **22 paths match** |
+| Migration-head parity | **d6e7f8a9b0c1** |
+| Compile and `pip check` | Passed |
+| Prior root and standalone SDK wheels | Built, installed in separate non-editable environments; smoke tests passed outside source import paths |
+| Prior resolved dependency advisory scan | **42 dependencies, 0 known vulnerabilities, 0 skips** after upgrade |
+| Documentation/whitespace checks | **133 local Markdown file targets** checked; `git diff --check` passed after cleanup |
+
+The three default skips are PostgreSQL-specific: fresh-process production
+startup, forced account CAS collision and cancellation paused before a competing
+HTTP claim. All ran in the prior PostgreSQL selection. On non-POSIX systems the SDK
+permission/symlink tests also have explicit platform skips; this run was Linux.
+The two warnings are Starlette/httpx and AnyIO test-helper deprecations.
+
+The PostgreSQL selection is 47 outbox + 87 exposure + 42 accounting/lifecycle +
+8 runtime-hardening cases. Some are pure unit tests; this does not mean every
+case issues database queries. Five SDK file-security tests and sixteen provider-resolution tests run in
+the default suite. Timing above is local test duration, **not capacity evidence**.
+
+## Reproduction commands
+
+```sh
+python -m venv .venv
+.venv/bin/pip install --upgrade -e '.[dev,postgres]'
+.venv/bin/python -m pytest -q
+.venv/bin/python scripts/probe_ledger_accounting.py
+.venv/bin/python scripts/check_contracts.py
+.venv/bin/python -m compileall -q server sdk tests protocol migrations scripts
+.venv/bin/pip check
+
+# Set this to YOUR disposable test database, never production.
+export AGENTFORGE_TEST_POSTGRES_URL='<disposable PostgreSQL URL>'
+.venv/bin/python -m pytest -q tests/test_outbox_regressions.py \
+  tests/test_public_exposure.py tests/test_accounting_regressions.py \
+  tests/test_runtime_hardening.py
+
+.venv/bin/pip wheel --no-deps --wheel-dir .venv/wheels . sdk/python
+# Install each wheel in a separate fresh venv and run outside source import paths.
 ```
 
-The 2026-09-15 baseline run produced `16 passed`, compile success, all five JSON
-Schemas valid, OpenAPI match, and Alembic revision `3293de03bb66` after the
-downgrade/re-upgrade round trip, with one non-failing Starlette/httpx
-deprecation warning.
+Wheel smoke checks cover packaged envelope validators, root/nested schema dialect
+handling, exact tiny-debit arithmetic, Ed25519 interoperability, standalone SDK
+imports/flat methods and private identity persistence.
 
-Re-running the same commands on `main` after PR #1, PR #2, and PR #3 were
-merged (2026-09-17, Python 3.11.2) produced:
+For dependency auditing, freeze the resolved environment **before** installing
+scanner tools, exclude the editable project itself, and run pip-audit in a
+separate tool environment:
 
-| Check | Result |
-|---|---|
-| `python -m pytest -q` | `52 passed`, 2 warnings |
-| `python -m compileall -q server sdk tests examples` | passed |
-| JSON Schema meta-validation (`protocol/v1/*.schema.json`) | 6 of 6 valid |
-| Generated OpenAPI vs `protocol/v1/openapi.json` | `OPENAPI_MATCH`, 22 paths |
-| `alembic upgrade head -> downgrade base -> upgrade head` | `c4d5e6f7a8b9 (head)` |
-| `git diff --check` | clean |
-| `python -m agentforge_server.worker --once` | one tick, clean exit |
-| GitHub Actions CI on `main` | success (run `35153608459` for PR #2) |
+```sh
+.venv/bin/pip freeze --exclude-editable > .venv/resolved.txt
+python -m venv .venv/dependency-audit
+.venv/dependency-audit/bin/pip install 'pip-audit>=2.9,<3'
+.venv/dependency-audit/bin/pip-audit --disable-pip --no-deps -r .venv/resolved.txt
+```
 
-Both warnings are the non-failing Starlette/httpx and `anyio.abc.BlockingPortal`
-deprecations already noted for the baseline. No test outcome depends on them.
+Scanner: pip-audit 2.10.1. The initial scan returned seven advisory records for
+cryptography 46.0.7, representing four distinct IDs (duplicate records included).
+The upgrade cleared that scan. This does not prove an AgentForge exploit of those
+advisories or guarantee every version permitted by other dependency ranges is
+safe. Preserve/re-audit the actual deployment resolution. Package/version and
+advisory evidence: [dependency scan record](audit/dependency-scan-2026-09-18.json).
+The scanner did not audit the editable application, OS, native PostgreSQL binary,
+or its own separate tool environment.
 
-## Requirement traceability
+## PostgreSQL and migration provenance
 
-| Audit requirement | Implementation surface | Regression coverage |
-|---|---|---|
-| Claim lease expiry, reopen, reaper, direct expiry checks, late-submission rejection | `server/agentforge_server/app.py`, `services.py`, `worker.py` | `test_claim_expiry_reopens_and_rejects_old_work` |
-| Persistent idempotency replay/conflict for task creation, claims, inference, submissions, validation, disputes, settlement | `IdempotencyRecord` in `models.py`; request wrapper in `app.py`/`services.py` | `test_idempotency_replay_and_conflict_cover_the_mutating_flow`, `test_dispute_open_and_resolution_are_idempotent` |
-| Conservative provenance; client source claims remain level 0 | `server/agentforge_server/provenance.py`, server-derived task fields | `test_provenance_claims_stay_level_zero_until_a_registered_adapter` |
-| Independent deterministic validation | `server/agentforge_server/validators/deterministic.py` | `test_deterministic_acceptance_rejects_validator_claims_and_tampered_proofs`, `test_full_mock_exchange` |
-| Hash, schema, acceptance, evidence, ownership, receipt, deadline, and structural checks | deterministic validator plus `ValidationDecision.deterministic_checks` | same deterministic validation test |
-| Private task/inference/submission/proof/balance/audit authorization | authenticated read helpers and actor checks in `app.py` | `test_private_payloads_sessions_proofs_and_balances_require_authentication`, `test_cursor_audit_pagination_is_authenticated_and_stable` |
-| Explicit mock full/partial/refund/slash transitions | `services.escrow_settle`, escrow schema, ledger/audit events | `test_mock_escrow_transitions_conserve_value_and_cannot_double_settle` |
-| Settlement provider boundary isolated from core marketplace logic | `server/agentforge_server/settlement.py`, `adapters/mock_settlement.py`, thin `services.fund_task`/`services.escrow_settle` wrappers | full suite unchanged; `test_mock_escrow_transitions_conserve_value_and_cannot_double_settle` |
-| Server-derived provider/deployment mode and asset allow-list | `settings.py`, `settlement.get_settlement_provider`, `MockSettlementProvider.fund` | `test_mock_provider_rejects_flop_asset`, `test_mock_provider_rejects_unknown_assets`, `test_mock_provider_accepts_mock_and_test_credit`, `test_client_cannot_choose_network_or_provider_mode`, `test_deployment_and_settlement_mode_are_server_derived`, `test_unsupported_settlement_provider_raises` |
-| Primary escrow asset derived from the first funded component (zero-reward tasks with a `TEST_CREDIT` deposit or inference budget) | `MockSettlementProvider.fund` | `test_zero_reward_task_with_test_credit_deposit` |
-| Durable signed event outbox with dual attribution and feature-flagged transport | `event_envelope.py`, `publisher.py`, `outbox.py`, `worker.py`, `adapters/technocore.py` | `tests/test_signed_event_outbox.py` (28 tests) |
-| Actor and causal attribution from a verified request | `app.py` (`authenticate`, `queue_request_outbox`), `services.queue_outbox` | `test_verified_request_is_recorded_as_causation`, `test_claim_event_records_executor_as_actor`, `test_server_generated_events_have_null_actor_and_causation` |
-| Private payloads, evidence, and credentials never published | `event_envelope.public_attributes`, `services.task_outbox_payload` | `test_envelope_never_publishes_raw_payload_or_private_content`, `test_queued_task_payload_omits_private_input` |
-| Idempotent publication, retry/backoff, dead-letter, and delivery telemetry | `outbox.drain_once`, `outbox.outbox_metrics` | `test_repeated_drain_of_a_delivered_event_is_idempotent`, `test_transport_failure_is_recorded_and_retried_without_losing_the_event`, `test_exhausted_attempts_move_to_dead_letter_with_error`, `test_expired_lease_is_reclaimable_and_metrics_report_age` |
-| Publisher key handling: env-sourced, ephemeral in dev, refused in production, rotation via `key_id` | `publisher.py`, `settings.py` | `test_key_rotation_changes_key_id_and_invalidates_old_signatures`, `test_production_requires_a_configured_signing_key`, `test_invalid_signing_key_is_rejected`, `test_ephemeral_development_key_is_stable_within_the_process` |
-| Documented slash behavior | `mock_burn` destination for requester-subject slash; no account credited | same escrow test and `README.md` |
-| Database-safe active-claim invariant/race handling | partial unique `uq_active_task_claim` index plus claim transaction | `test_active_claim_index_and_outbox_leases_are_database_safe` |
-| Leased outbox delivery | `server/agentforge_server/outbox.py` | `test_active_claim_index_and_outbox_leases_are_database_safe` |
-| Cursor audit pagination | authenticated `(created_at, id)` cursor | `test_cursor_audit_pagination_is_authenticated_and_stable` |
-| Alembic migration and production refusal of implicit SQLite schema creation | `migrations/`, `db.py`, startup guard | `test_production_does_not_auto_create_sqlite_schema`, `test_alembic_initial_schema_is_reproducible`, manual round trip |
-| Persisted inference `submission_id` | `InferenceSession.submission_id`; submission attachment path | `test_idempotency_replay_and_conflict_cover_the_mutating_flow`, deterministic validation test |
-| Deterministic acceptance checks | required outputs/evidence, expected outputs, JSON Schema in deterministic validator | deterministic validation test |
-| Server-derived independence | operator/infrastructure groups, ancestry, reciprocal history, validator conflict checks | `test_server_side_group_independence_blocks_executor_and_validator`, `test_ancestry_and_reciprocal_history_are_server_derived` |
-| Private balances and Decimal accounting | authenticated balance route; string amounts and `Decimal` service calculations | full exchange and escrow transition tests |
-| Expanded dispute/independence coverage | dispute routes, resolution, history-derived exclusions | all three tests in `test_dispute_and_independence.py` |
-| Separated Docker configuration | `Dockerfile`, `Dockerfile.dev`, `docker-compose.yml`, `docker-compose.dev.yml` | configuration review; production uses explicit Alembic and no faucet |
+The local test server was native PostgreSQL **16.2**, from test-only
+`pgserver==0.1.4`, not a project/runtime dependency. The known wheel SHA-256 is
+`d595789b47624a3d963aa9aa6359da9be31beb7e61f1a45541953242068b8813`.
+This old patch is **not recommended for production**. CI selects maintained
+`postgres:16-alpine`; that CI definition has not been run for this working tree.
 
-## Frozen behavior decisions
+The server used a private mode-0700 Unix socket, empty `listen_addresses` (no
+TCP), and disposable `agentforge_verification` database. Tests create/drop random
+schemas; tools, data and raw logs remain ignored under `.venv/`. No user database
+was opened. **Zero leftover test schemas** were observed before shutdown; the
+server then stopped cleanly with exit 0 and no listening ports.
 
-### Idempotency
+The selected suites cover additive migration preservation/downgrade and stale
+schema rejection. No additional migration was needed for this accounting/runtime
+follow-up. The production-startup test uses a fresh subprocess and FastAPI
+TestClient with migrated PostgreSQL, enrollment closed, faucet/publishing off,
+empty reviewer grants and a worker tick. It is not a Uvicorn/OCI deployment test.
 
-Signed mutating routes require `Idempotency-Key`. The server binds the key to the authenticated DID, method, path, and raw-body hash. A completed identical request replays the stored response. A key reused for a different bound request returns `409`.
+## Still separate gates
 
-### Expiry
-
-Expiry is fail-closed. The API checks the current lease/deadline on heartbeats, inference creation, and submission. A reaper marks expired claims and reopens eligible tasks. A submission cannot attach an inference session from an earlier expired claim.
-
-### Provenance and eligibility
-
-`source_ref`, `novelty_hash`, `attestation`, and client-provided `level` are claims/evidence. Only a registered server-side source adapter can raise trusted provenance above level zero. `DEMO_ONLY`, `REPUTATION_ELIGIBLE`, `ECONOMIC_ELIGIBLE`, and `EXTERNAL_NETWORK_VERIFIED` are separate server-derived concepts; clients cannot choose them.
-
-### Deterministic validation
-
-Validator-supplied `checks` are not authoritative. Deterministic checks run independently and a fatal deterministic failure prevents a positive settlement decision. The implementation validates stored proof identity and hashes, acceptance requirements, result schemas, evidence structure, inference ownership/receipt integrity, and deadlines.
-
-### Mock settlement
-
-Only local test assets such as `MOCK` and `TEST_CREDIT` belong in the mock ledger. The supported transitions are mutually exclusive and idempotent: `FULL_RELEASE`, `PARTIAL_RELEASE`, `REFUND`, and `SLASH`. A requester-subject slash records the documented `mock_burn` destination and credits no account; executor collateral is not modeled.
-
-Escrow now lives behind the `SettlementProvider` protocol in `settlement.py`, with `MockSettlementProvider` as the only enabled implementation. `fund()` derives the primary escrow asset from the first funded component in the order reward, deposit, inference, so a zero-reward task with a `TEST_CREDIT` security deposit reserves `TEST_CREDIT` rather than failing against the default `MOCK` reward asset. Every component that requests an asset must name a member of the server allow-list (`MOCK`, `TEST_CREDIT`), and every component with a non-zero amount must match the primary asset. Provider selection is server-derived from `AGENTFORGE_SETTLEMENT_PROVIDER`; an unsupported value raises at call time instead of falling back to mock, and deployment mode comes from `AGENTFORGE_DEPLOYMENT_MODE`.
-
-## Not validated here
-
-- No PostgreSQL server was available in the sandbox. Run the migration and integration suite against PostgreSQL before accepting real private workloads.
-- No official FLOP testnet interface was used, because no official stable provider contract was available in the frozen scope.
-- No TCLK adapter was implemented or treated as a value rail.
-
-These are explicit boundaries, not hidden failures.
+Independent local-agent review; maintained-release CI; protected ingress and
+proxy trust; backup restoration, crash/load/HA tests; audience authorization for
+outbox metadata; deployment and pilot approval. No real-value settlement,
+external-client audit, MCP/broker, public API launch or 100k concurrency claim.
+The human maintainer alone decides and performs merges. Historical evidence is
+retained in the dated audit/readiness files, not restated as current results.

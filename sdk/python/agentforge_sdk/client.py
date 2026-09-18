@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import time
 import uuid
 from dataclasses import dataclass
@@ -50,16 +51,24 @@ class AgentIdentity:
         return identity
 
     def save(self, path: str | os.PathLike[str]) -> None:
+        """Atomically replace an identity file, private from its first write.
+
+        The caller must use a trusted directory. Never write through a target
+        symlink or expose a newly created key before a later chmod. Filesystem
+        failures propagate; the previous identity survives a failed replacement.
+        """
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            json.dumps({"did": self.did, "private_key_hex": self.private_key_hex}, indent=2),
-            encoding="utf-8",
-        )
+        content = json.dumps({"did": self.did, "private_key_hex": self.private_key_hex}, indent=2)
+        fd, temporary = tempfile.mkstemp(prefix=".agentforge-identity-", dir=target.parent)
         try:
-            target.chmod(0o600)
-        except OSError:
-            pass
+            with os.fdopen(fd, "w", encoding="utf-8") as output:
+                output.write(content)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, target)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
 
     @property
     def key(self) -> Ed25519PrivateKey:

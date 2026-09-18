@@ -2,6 +2,10 @@
 
 <!-- What is the smallest problem this PR solves? -->
 
+## Merge authority
+
+- [ ] This PR is **not** self-merged. Only the human maintainer merges after audit.
+
 ## Scope
 
 - [ ] This PR is one cohesive change.

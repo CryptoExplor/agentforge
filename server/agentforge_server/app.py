@@ -8,16 +8,22 @@ import json
 import math
 import os
 import secrets
+from decimal import Decimal, InvalidOperation
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from starlette.concurrency import run_in_threadpool
+
+from .admission import AdmissionDenied, consume_authenticated, validate_security_configuration
+from .middleware import MAX_BODY_BYTES, RequestSecurityMiddleware
+from .validators.result_schema import UnsafeSchema, check_result_schema
 from . import db as database
 from .crypto import (
     canonical_json,
@@ -58,7 +64,9 @@ from .schemas import (
 from .services import (
     add_audit,
     add_reputation,
+    AccountingConflict,
     begin_idempotency,
+    guard_pending_submission,
     build_anti_circularity,
     can_execute,
     capability_names,
@@ -67,6 +75,7 @@ from .services import (
     independence_failures,
     escrow_settle,
     fund_task,
+    guard_active_claim,
     mark_task_deadline_expired,
     new_id,
     now,
@@ -82,8 +91,8 @@ from .settings import settings
 from .validators import validate_submission as deterministic_validate
 
 
-MAX_BODY_BYTES = 2_000_000
 CLAIM_LEASE_SECONDS = 15 * 60
+MAX_LIST_BYTES = 4_000_000
 
 
 def http_error(status_code: int, detail: str) -> HTTPException:
@@ -95,11 +104,12 @@ async def lifespan(_: FastAPI):
     if settings.environment == "production":
         if database.DATABASE_URL.startswith("sqlite"):
             raise RuntimeError("SQLite schema is not allowed in production")
-        verify_schema()
+        verify_schema(require_migrations=True)
     elif settings.auto_create_schema:
         init_db()
     else:
         verify_schema()
+    validate_security_configuration()
     yield
 
 
@@ -111,12 +121,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    @app.middleware("http")
-    async def body_limit(request: Request, call_next):
-        content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > MAX_BODY_BYTES:
-            raise http_error(413, "request body too large")
-        return await call_next(request)
+    app.add_middleware(RequestSecurityMiddleware)
 
     @app.get("/", include_in_schema=False)
     def root():
@@ -148,6 +153,8 @@ def create_app() -> FastAPI:
         idempotency_key = request.headers.get("Idempotency-Key")
         if not all([did, timestamp, nonce, signature]):
             raise http_error(401, "signed agent headers are required")
+        if len(timestamp or "") > 160:
+            raise http_error(401, "request timestamp is too long")
         if len(nonce or "") > 160:
             raise http_error(401, "request nonce is too long")
         if require_idempotency and not idempotency_key:
@@ -177,6 +184,13 @@ def create_app() -> FastAPI:
         if not verify_signature(did, message, signature):
             raise http_error(401, "invalid request signature")
 
+        try:
+            await run_in_threadpool(consume_authenticated, did, db)
+        except AdmissionDenied as exc:
+            raise HTTPException(429, "request quota exceeded", headers={"Retry-After": str(exc.retry_after)})
+        except Exception:
+            raise http_error(503, "admission unavailable")
+
         # Record the verified request as causal attribution for any outbox event
         # this request produces. request_id is the single-use request nonce, which
         # the server already persists in used_nonces.
@@ -184,6 +198,7 @@ def create_app() -> FastAPI:
         request.state.causation = {
             "request_id": nonce,
             "request_signature": signature,
+            "request_timestamp": timestamp,
             "request_body_hash": "sha256:" + sha256_bytes(raw_body),
             "method": request.method.upper(),
             "path": request.url.path,
@@ -355,11 +370,17 @@ def create_app() -> FastAPI:
         claim = db.get(Claim, task.claim_id) if task.claim_id else None
         if did in {task.poster_did, claim.executor_did if claim else None}:
             return did
-        if {"validation", "validator"}.intersection(capability_names(db, did)):
+        if did in settings.trusted_validator_dids and {"validation", "validator"}.intersection(capability_names(db, did)):
             return did
         raise http_error(404, "task not found")
 
     def validate_task_inputs(body: TaskCreate) -> None:
+        for key in ("result_schema", "output_schema", "schema"):
+            if key in body.acceptance:
+                try:
+                    check_result_schema(body.acceptance[key])
+                except (UnsafeSchema, RecursionError):
+                    raise http_error(422, "unsupported, invalid or overly complex acceptance schema")
         if not body.acceptance:
             raise http_error(400, "acceptance criteria are required")
         if body.generation_policy.synthetic_demo and body.demand_provenance.type != "synthetic_demo":
@@ -414,6 +435,16 @@ def create_app() -> FastAPI:
         timestamp = now()
         agent = db.get(Agent, body.did)
         is_new = agent is None
+        if is_new and not settings.registration_open:
+            raise http_error(403, "new agent registration is closed")
+        # Single-use challenge is a compare-and-set, including concurrent registration.
+        consumed = db.execute(update(RegistrationChallenge).where(
+            RegistrationChallenge.challenge_id == body.challenge_id,
+            RegistrationChallenge.used.is_(False),
+            RegistrationChallenge.expires_at >= now(),
+        ).values(used=True).execution_options(synchronize_session=False))
+        if consumed.rowcount != 1:
+            raise http_error(409, "registration challenge already consumed or expired")
         if is_new:
             agent = Agent(
                 did=body.did,
@@ -471,6 +502,36 @@ def create_app() -> FastAPI:
         db.commit()
         return agent_view(db, agent)
 
+    @app.get("/api/v1/agents/search")
+    def search_agents(
+        capability: str | None = None,
+        chain: str | None = None,
+        limit: int = Query(default=50, ge=1, le=100),
+        db: Session = Depends(get_db),
+    ):
+        statement = select(Agent).where(Agent.status == "active")
+        if capability:
+            statement = statement.where(Agent.did.in_(select(AgentCapability.agent_did).where(AgentCapability.name == capability)))
+        agents = db.scalars(statement.order_by(Agent.did).limit(500).execution_options(yield_per=1))
+        result = []
+        response_bytes = 0
+        for agent in agents:
+            caps = capability_names(db, agent.did)
+            chains = set((agent.manifest or {}).get("chains", []))
+            if capability and capability not in caps:
+                continue
+            if chain and chain not in chains:
+                continue
+            item = agent_view(db, agent)
+            size = len(canonical_json(item).encode())
+            if response_bytes + size > MAX_LIST_BYTES:
+                break
+            result.append(item)
+            response_bytes += size
+            if len(result) >= limit:
+                break
+        return {"agents": result}
+
     @app.get("/api/v1/agents/{did}")
     def get_agent(did: str, db: Session = Depends(get_db)):
         agent = db.get(Agent, did)
@@ -495,34 +556,10 @@ def create_app() -> FastAPI:
 
     @app.get("/api/v1/capabilities")
     def list_capabilities(db: Session = Depends(get_db)):
-        rows = db.scalars(select(AgentCapability)).all()
-        counts: dict[str, int] = {}
-        for row in rows:
-            counts[row.name] = counts.get(row.name, 0) + 1
-        return {
-            "capabilities": [
-                {"name": name, "agent_count": count}
-                for name, count in sorted(counts.items())
-            ]
-        }
-
-    @app.get("/api/v1/agents/search")
-    def search_agents(
-        capability: str | None = None,
-        chain: str | None = None,
-        db: Session = Depends(get_db),
-    ):
-        agents = db.scalars(select(Agent).where(Agent.status == "active")).all()
-        result = []
-        for agent in agents:
-            caps = capability_names(db, agent.did)
-            chains = set((agent.manifest or {}).get("chains", []))
-            if capability and capability not in caps:
-                continue
-            if chain and chain not in chains:
-                continue
-            result.append(agent_view(db, agent))
-        return {"agents": result}
+        rows = db.execute(select(AgentCapability.name, func.count()).group_by(
+            AgentCapability.name
+        ).order_by(AgentCapability.name).limit(100)).all()
+        return {"capabilities": [{"name": name, "agent_count": count} for name, count in rows]}
 
     @app.post("/api/v1/tasks")
     async def create_task(body: TaskCreate, request: Request, db: Session = Depends(get_db)):
@@ -610,7 +647,7 @@ def create_app() -> FastAPI:
             db.commit()
         except ValueError as exc:
             db.rollback()
-            raise http_error(400, str(exc))
+            raise http_error(409 if isinstance(exc, AccountingConflict) else 400, str(exc))
         return response_body
 
     @app.get("/api/v1/tasks")
@@ -619,16 +656,29 @@ def create_app() -> FastAPI:
         capability: str | None = None,
         chain: str | None = None,
         origin: str | None = None,
-        min_reward: str | None = None,
+        min_reward: str | None = Query(default=None, max_length=80),
         limit: int = Query(default=50, ge=1, le=100),
         db: Session = Depends(get_db),
     ):
-        reap_expired_claims(db)
-        tasks = db.scalars(select(Task).order_by(Task.created_at.desc()).limit(500)).all()
         result = []
+        response_bytes = 0
         from .services import dec
 
-        minimum = dec(min_reward) if min_reward is not None else None
+        minimum = None
+        if min_reward is not None:
+            try:
+                minimum = Decimal(min_reward)
+            except InvalidOperation:
+                raise http_error(422, "min_reward must be a finite nonnegative decimal")
+            if not minimum.is_finite() or minimum < 0 or abs(minimum.adjusted()) > 80:
+                raise http_error(422, "min_reward must be a bounded finite nonnegative decimal")
+        reap_expired_claims(db)
+        statement = select(Task).where(Task.visibility == "public")
+        if status:
+            statement = statement.where(Task.status == status)
+        if origin:
+            statement = statement.where(Task.origin == origin)
+        tasks = db.scalars(statement.order_by(Task.created_at.desc()).limit(500).execution_options(yield_per=1))
         for task in tasks:
             if task.visibility != "public":
                 continue
@@ -644,7 +694,12 @@ def create_app() -> FastAPI:
                 reward = dec(((task.economics or {}).get("reward") or {}).get("amount", "0"))
                 if reward < minimum:
                     continue
-            result.append(task_view(db, task))
+            item = task_view(db, task)
+            size = len(canonical_json(item).encode())
+            if response_bytes + size > MAX_LIST_BYTES:
+                break
+            result.append(item)
+            response_bytes += size
             if len(result) >= limit:
                 break
         return {"tasks": result}
@@ -669,8 +724,13 @@ def create_app() -> FastAPI:
             raise http_error(404, "task not found")
         if task.poster_did != did:
             raise http_error(403, "only the requester may cancel a task")
-        if task.status not in {"OPEN", "FUNDED"}:
+        cancelled = db.execute(update(Task).where(
+            Task.id == task.id, Task.status.in_(["OPEN", "FUNDED"]),
+        ).values(status="CANCELLED", updated_at=now(), state_version=Task.state_version + 1)
+            .execution_options(synchronize_session=False))
+        if cancelled.rowcount != 1:
             raise http_error(409, "claimed or submitted tasks cannot be cancelled directly")
+        db.refresh(task)
         try:
             escrow_settle(
                 db,
@@ -681,7 +741,7 @@ def create_app() -> FastAPI:
             )
         except ValueError as exc:
             db.rollback()
-            raise http_error(400, str(exc))
+            raise http_error(409 if isinstance(exc, AccountingConflict) else 400, str(exc))
         task.status = "CANCELLED"
         task.updated_at = now()
         add_audit(db, actor_did=did, kind="TASK_CANCELLED", aggregate_type="task", aggregate_id=task.id, payload={})
@@ -706,6 +766,13 @@ def create_app() -> FastAPI:
         replay = idempotency_replay(request)
         if replay is not None:
             return replay
+        # Serialize this executor's cross-task claim count. Task locks alone
+        # cannot enforce the limit when two different tasks are claimed at once.
+        active = db.execute(update(Agent).where(
+            Agent.did == did, Agent.status == "active",
+        ).values(status=Agent.status).execution_options(synchronize_session=False))
+        if active.rowcount != 1:
+            raise http_error(401, "unknown or inactive agent")
         task = db.scalar(select(Task).where(Task.id == task_id).with_for_update())
         if not task:
             raise http_error(404, "task not found")
@@ -767,15 +834,13 @@ def create_app() -> FastAPI:
         claim = db.get(Claim, claim_id)
         if not claim or claim.executor_did != did:
             raise http_error(404, "claim not found")
-        task = db.get(Task, claim.task_id)
+        if not guard_active_claim(db, claim):
+            raise http_error(409, "claim is no longer active")
+        task = db.get(Task, claim.task_id, populate_existing=True)
         if task and task.deadline and task.deadline <= now():
             discard_idempotency(request, db)
             mark_task_deadline_expired(db, task, claim)
             raise http_error(409, "task deadline has passed")
-        if claim.status != "ACTIVE" or claim.lease_expires_at <= now():
-            discard_idempotency(request, db)
-            reap_expired_claims(db)
-            raise http_error(409, "claim is no longer active")
         claim.heartbeat_at = now()
         claim.lease_expires_at = claim.heartbeat_at + CLAIM_LEASE_SECONDS
         claim.updated_at = claim.heartbeat_at
@@ -801,10 +866,9 @@ def create_app() -> FastAPI:
         claim = db.get(Claim, task.claim_id)
         if not claim or claim.executor_did != did or claim.status != "ACTIVE":
             raise http_error(403, "agent does not own an active claim")
-        if claim.lease_expires_at <= now():
-            discard_idempotency(request, db)
-            reap_expired_claims(db)
-            raise http_error(409, "claim expired")
+        if not guard_active_claim(db, claim):
+            raise http_error(409, "claim is no longer active")
+        db.refresh(task)
         if task.deadline and task.deadline <= now():
             discard_idempotency(request, db)
             mark_task_deadline_expired(db, task, claim)
@@ -884,10 +948,9 @@ def create_app() -> FastAPI:
             raise http_error(403, "agent does not own this task")
         if claim.status != "ACTIVE":
             raise http_error(409, "claim is not submit-capable")
-        if claim.lease_expires_at <= now():
-            discard_idempotency(request, db)
-            reap_expired_claims(db)
-            raise http_error(409, "claim lease expired")
+        if not guard_active_claim(db, claim):
+            raise http_error(409, "claim is no longer active")
+        db.refresh(task)
         if task.deadline and task.deadline <= now():
             discard_idempotency(request, db)
             mark_task_deadline_expired(db, task, claim)
@@ -948,7 +1011,7 @@ def create_app() -> FastAPI:
         claim.status = "SUBMITTED"
         task.updated_at = now()
         add_audit(db, actor_did=did, kind="TASK_SUBMITTED", aggregate_type="submission", aggregate_id=submission.id, payload={"task_id": task.id, "proof_hash": submission.proof_hash})
-        queue_request_outbox(request, db, kind="PROOF_SUBMITTED", aggregate_id=submission.id, payload={"task_id": task.id, "submission_id": submission.id, "proof_hash": proof.get("proof_hash")})
+        queue_request_outbox(request, db, kind="PROOF_SUBMITTED", aggregate_id=submission.id, payload={"task_id": task.id, "submission_id": submission.id, "proof_hash": submission.proof_hash})
         response_body = submission_view(submission)
         finish_idempotency(request, response_body)
         db.commit()
@@ -997,7 +1060,7 @@ def create_app() -> FastAPI:
         }
 
     def validator_allowed(db: Session, validator_did: str, task: Task, submission: Submission) -> bool:
-        if validator_did in {task.poster_did, submission.executor_did}:
+        if validator_did not in settings.trusted_validator_dids or validator_did in {task.poster_did, submission.executor_did}:
             return False
         caps = capability_names(db, validator_did)
         if not ({"validation", "validator"} & caps):
@@ -1038,8 +1101,8 @@ def create_app() -> FastAPI:
         request: Request | None = None,
     ) -> dict[str, Any]:
         if not validator_allowed(db, validator_did, task, submission):
-            raise http_error(403, "validator is not independent or lacks validation capability")
-        if submission.status not in {"SUBMITTED", "DISPUTED"}:
+            raise http_error(403, "validator is not approved, independent or validation-capable")
+        if not guard_pending_submission(db, submission):
             raise http_error(409, "submission is not awaiting validation")
         if db.get(ValidationDecision, body.decision_id):
             raise http_error(409, "validation decision ID already exists")
@@ -1071,7 +1134,8 @@ def create_app() -> FastAPI:
                 settlement=body.settlement,
             )
         except ValueError as exc:
-            raise http_error(400, str(exc))
+            db.rollback()
+            raise http_error(409 if isinstance(exc, AccountingConflict) else 400, str(exc))
 
         decision = ValidationDecision(
             id=body.decision_id,
@@ -1131,12 +1195,11 @@ def create_app() -> FastAPI:
         )
         add_audit(db, actor_did=validator_did, kind="VALIDATION_RECORDED", aggregate_type="submission", aggregate_id=submission.id, payload={"decision": body.decision, "decision_id": body.decision_id})
         queue_request_outbox(request, db, kind="VALIDATION_RECORDED", aggregate_id=submission.id, payload={"task_id": task.id, "submission_id": submission.id, "decision": body.decision, "decision_id": body.decision_id, "evidence_hash": evidence_hash})
-        if dispute_id:
-            dispute = db.get(Dispute, dispute_id)
-            if dispute:
-                dispute.status = "RESOLVED"
-                dispute.resolution_decision_id = decision.id
-                dispute.resolved_at = now()
+        # The ordinary validation endpoint also accepts disputed submissions.
+        # Close the associated open dispute in the same winning transaction.
+        db.execute(update(Dispute).where(
+            Dispute.submission_id == submission.id, Dispute.status == "OPEN",
+        ).values(status="RESOLVED", resolution_decision_id=decision.id, resolved_at=now()))
         response_body = {
             "decision_id": decision.id,
             "submission_id": decision.submission_id,
@@ -1163,6 +1226,8 @@ def create_app() -> FastAPI:
         db: Session = Depends(get_db),
     ):
         did = await authenticate(request, db)
+        if did not in settings.trusted_validator_dids or not {"validation", "validator"}.intersection(capability_names(db, did)):
+            raise http_error(403, "validator is not approved or validation-capable")
         replay = idempotency_replay(request)
         if replay is not None:
             return replay
@@ -1200,7 +1265,7 @@ def create_app() -> FastAPI:
         task = db.get(Task, submission.task_id)
         if not task or did not in {task.poster_did, submission.executor_did}:
             raise http_error(403, "only requester or executor may open this dispute")
-        if submission.status not in {"SUBMITTED", "DISPUTED"}:
+        if not guard_pending_submission(db, submission):
             raise http_error(409, "submission is already terminal")
         if db.get(Dispute, body.dispute_id):
             raise http_error(409, "dispute ID already exists")
@@ -1228,9 +1293,14 @@ def create_app() -> FastAPI:
         if claim:
             claim.status = "DISPUTED"
         escrow = db.get(Escrow, task.id)
-        if escrow and escrow.status == "FUNDED":
-            escrow.status = "FROZEN"
-            escrow.updated_at = now()
+        if escrow:
+            frozen = db.execute(update(Escrow).where(
+                Escrow.task_id == task.id, Escrow.status.in_(["FUNDED", "FROZEN"]),
+            ).values(status="FROZEN", updated_at=now()).execution_options(synchronize_session=False))
+            if frozen.rowcount != 1:
+                db.rollback()
+                raise http_error(409, "escrow is already terminal")
+            db.refresh(escrow)
         add_audit(db, actor_did=did, kind="DISPUTE_OPENED", aggregate_type="submission", aggregate_id=submission.id, payload={"dispute_id": dispute.id})
         queue_request_outbox(request, db, kind="DISPUTE_OPENED", aggregate_id=submission.id, payload={"task_id": task.id, "submission_id": submission.id, "dispute_id": dispute.id})
         response_body = {"dispute_id": dispute.id, "submission_id": submission.id, "status": dispute.status}
@@ -1246,6 +1316,8 @@ def create_app() -> FastAPI:
         db: Session = Depends(get_db),
     ):
         did = await authenticate(request, db)
+        if did not in settings.trusted_validator_dids or not {"validation", "validator"}.intersection(capability_names(db, did)):
+            raise http_error(403, "validator is not approved or validation-capable")
         replay = idempotency_replay(request)
         if replay is not None:
             return replay

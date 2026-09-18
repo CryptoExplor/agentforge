@@ -66,6 +66,8 @@ def test_full_mock_exchange(tmp_path, monkeypatch):
         register(client, poster, {"name": "poster", "capabilities": ["research"], "chains": ["base"]})
         register(client, executor, {"name": "executor", "capabilities": ["proxy_security"], "chains": ["base"]})
         register(client, validator, {"name": "validator", "capabilities": ["validation"], "chains": ["base"]})
+        # Explicit operator grant; registration metadata itself conveys no authority.
+        settings.trusted_validator_dids = settings.trusted_validator_dids | {validator.did}
 
         task_payload = {
             "kind": "expert",

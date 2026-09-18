@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import time
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Protocol
 
-from .crypto import sha256_json
+from .crypto import canonical_json, sha256_json
 from .schemas import InferenceRequestCreate
 from .services import new_id
 
@@ -46,8 +48,33 @@ class MockInferenceProvider:
     evidence of FLOP-network work.
     """
 
+    # The API persists sessions in SQL. This is only a bounded convenience cache
+    # for direct provider calls, not a second unbounded private-payload store.
+    MAX_CACHED_SESSIONS = 64
+    MAX_CACHED_BYTES = 4 * 1024 * 1024
+
     def __init__(self) -> None:
-        self._sessions: dict[str, InferenceSessionData] = {}
+        self._sessions: OrderedDict[str, tuple[InferenceSessionData, int]] = OrderedDict()
+        self._cached_bytes = 0
+        self._cache_lock = threading.RLock()
+
+    def _remember(self, data: InferenceSessionData) -> None:
+        size = len(canonical_json({"result": data.result, "receipt": data.receipt}).encode("utf-8"))
+        with self._cache_lock:
+            if size > self.MAX_CACHED_BYTES:
+                return
+            while self._sessions and (len(self._sessions) >= self.MAX_CACHED_SESSIONS
+                                      or self._cached_bytes + size > self.MAX_CACHED_BYTES):
+                _, (_, removed_size) = self._sessions.popitem(last=False)
+                self._cached_bytes -= removed_size
+            self._sessions[data.id] = (data, size)
+            self._cached_bytes += size
+
+    def _cached(self, session_id: str) -> InferenceSessionData:
+        with self._cache_lock:
+            data, _ = self._sessions[session_id]  # Evicted/unknown direct calls raise KeyError.
+            self._sessions.move_to_end(session_id)
+            return data
 
     async def quote(self, request: InferenceRequestCreate) -> dict[str, Any]:
         return {
@@ -92,27 +119,23 @@ class MockInferenceProvider:
             result=result,
             receipt=receipt,
         )
-        self._sessions[session_id] = data
+        self._remember(data)
         return data
 
     async def status(self, session_id: str) -> str:
-        if session_id not in self._sessions:
-            raise KeyError(session_id)
-        return self._sessions[session_id].status
+        return self._cached(session_id).status
 
     async def result(self, session_id: str) -> dict[str, Any]:
-        if session_id not in self._sessions:
-            raise KeyError(session_id)
-        return self._sessions[session_id].result
+        return self._cached(session_id).result
 
     async def receipt(self, session_id: str) -> dict[str, Any]:
-        if session_id not in self._sessions:
-            raise KeyError(session_id)
-        return self._sessions[session_id].receipt
+        return self._cached(session_id).receipt
 
     async def cancel(self, session_id: str) -> None:
-        if session_id in self._sessions and self._sessions[session_id].status not in {"COMPLETED", "CANCELLED"}:
-            self._sessions[session_id].status = "CANCELLED"
+        with self._cache_lock:
+            cached = self._sessions.get(session_id)
+            if cached and cached[0].status not in {"COMPLETED", "CANCELLED"}:
+                cached[0].status = "CANCELLED"
 
 
 MOCK_PROVIDER = MockInferenceProvider()

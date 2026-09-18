@@ -1,11 +1,29 @@
 # AgentForge architecture decisions
 
 **Decision status:** frozen for the audit-fix MVP
-**Last reviewed:** 2026-09-15 (Asia/Calcutta)
+**Last reviewed:** 2026-09-17 (Asia/Calcutta)
+
+**Current addendum:** [SDK/deployment plan](SDK_ARCHITECTURE_PLAN.md) and
+[deployment readiness](DEPLOYMENT_READINESS_2026-09-17.md). Baseline security
+rules below are intended invariants, not a claim that new exposure findings
+D1–D6 are independently verified. Their [working-tree remediation](SECURITY_REMEDIATION.md)
+is now implemented; public API deployment remains blocked pending audit.
 
 This is the short decision record for future contributors and GitHub coding agents. The longer rationale remains in [`../AGENTFORGE_ARCHITECTURE.md`](../AGENTFORGE_ARCHITECTURE.md) and [`../ANTIGRAVITY_IMPLEMENTATION_BRIEF.md`](../ANTIGRAVITY_IMPLEMENTATION_BRIEF.md).
 
 ## 1. Product boundary
+
+WebAgent implements only the independent marketplace. The local agent separately
+owns any Activity Engine and independently audits AgentForge. That engine is an
+ordinary public API/SDK client; its fleet strategy, unrelated bot logic, client
+provider-key management, scheduling and airdrop optimization are outside this
+repository's implementation scope.
+
+**AgentForge is not built on TCLK.** It is an independent marketplace; TCLK is
+an optional deal-coordination adapter and the external settlement rail owns value
+transfer. See [integration boundaries](INTEGRATION_BOUNDARIES.md) for the public
+client API, official-infrastructure integration gates, testnet evidence rules
+and the distinction between Technocore's service and a private Activity Engine.
 
 AgentForge owns:
 
@@ -80,7 +98,8 @@ Only after the audit phase may a thin TCLK adapter be considered. It must call t
 ## 5a. Signed event outbox and publisher identity
 
 Publication outside this instance goes through the outbox as a canonical
-`agentforge-event/1` envelope (`protocol/v1/event-envelope.schema.json`,
+versioned envelope (current `agentforge-event/2`, legacy v1 retained;
+`protocol/v1/event-envelope-v2.schema.json`,
 `server/agentforge_server/event_envelope.py`). The envelope keeps two
 attributions separate:
 
@@ -92,8 +111,9 @@ server.publisher_id + signature  "this AgentForge instance emitted this record"
 An agent signature proves that a DID requested an operation. It does **not**
 prove that the resulting marketplace event happened, because the request may have
 been rejected or produced different state. The server signature over the
-canonical envelope is what authenticates the recorded transition, so an external
-observer never has to take "AgentForge says Agent X did Y" on trust.
+canonical envelope is what authenticates the recorded transition, while a v2 observer can separately verify the actor's request signature from
+the stored exact signing components. A signature is not independent proof of
+state correctness; legacy v1 causation lacks the timestamp for actor verification.
 
 The publisher key (`AGENTFORGE_EVENT_SIGNING_KEY`, `publisher.py`) is a
 *publisher* identity, not an identity root: it never authenticates agent
@@ -124,6 +144,15 @@ derived from provenance, capability, and history.
 
 ## 6. External protocol findings retained for context
 
+The [FLOP / TCLK intelligence update v1](protocol-intelligence/flop/CURRENT_STATE.md)
+(reviewed 2026-09-17) records useful design implications, a source ledger, draft
+parameter observations and a pinned TCLK research revision. It distinguishes
+upstream target rules from reported implementation status and unverified social
+claims. It does not authorize adapters, relax validation, enable real assets or
+supersede the 5–10-agent pilot. Resolve the
+[signed-outbox audit findings](AUDIT_SIGNED_OUTBOX_2026-09-17.md) before relying on
+outbox attribution and expiry telemetry for external integrations.
+
 These links are context, not implementation dependencies:
 
 - TCLK specification: <https://github.com/flop-labs/tclk/blob/main/SPEC.md>
@@ -146,3 +175,51 @@ Do not add any of the following without an explicit scope reversal:
 - client-controlled eligibility or network mode;
 - removal of the `MOCK`/non-official labeling;
 - a large validator-economics system for the MVP.
+
+
+## 8. SDK and deployment boundary (2026-09-17 design addendum)
+
+Keep a modular monolith and a stable public HTTP/protocol contract. Maintain one
+small standalone Python SDK; extract internals and add resource wrappers only
+in compatible increments after the new security work. Preserve existing flat
+methods/imports. If added, `client.resources` avoids collisions with the existing
+`client.events()` and `client.reputation()` methods. SDKs are optional clients,
+not server dependencies or the only way to implement the protocol.
+
+Server-side inference, settlement and event-transport adapters remain separate
+from public SDK dependencies. TCLK is coordination, not value settlement. No
+fake adapter, JS SDK or MCP package is authorized by this design. MCP, if needed,
+will use the same API authorization boundary, not duplicate business logic.
+The existing settlement port is ORM-coupled and mock-oriented; real asynchronous
+settlement may require reviewed core/migration changes, not merely a new file.
+
+Static frontend/docs on Vercel may be prepared independently of SDK refactoring.
+Keep the API private until D1–D6 and operational controls are verified; use a
+separate API service, PostgreSQL and continuous worker for staging. Correct and
+publish existing llms resources only with real links. No domain/hostname or
+new documentation URL is assumed. The detailed comparison, compatibility path,
+actual-file plan and acceptance gates are in [SDK_ARCHITECTURE_PLAN.md](SDK_ARCHITECTURE_PLAN.md).
+This addendum records a design, not code implementation or deployment approval.
+
+
+## 9. Discovery scale and hosting (2026-09-17 design addendum)
+
+Design toward 100k+ agent clients through selective task announcements and local
+filtering, not mandatory whole-catalogue polling or all-to-all broadcast. Keep
+ordinary HTTP clients compatible. The [scalability contract](DISCOVERY_SCALABILITY_PLAN.md)
+defines future privacy, replay, backpressure, versioning and measurement gates.
+It creates no new endpoint, schema, SDK method, broker or verified capacity.
+
+Keep actor-scoped audit `/api/v1/events`, signed outbox publication and proposed
+discovery separate. Use an additive discovery SDK namespace, not changed audit
+semantics. Private task IDs, participant DIDs, hashes and routing metadata may
+be sensitive; authorize projection, subscription and replay, not just final
+fetch. Capability routing is never authorization or execution eligibility.
+A notification is a hint; the signed claim and SQL state remain authoritative.
+
+Choose a VPS or suitable persistent container PaaS for API/worker lifecycle;
+managed PostgreSQL is an operational option. Neither a particular vendor nor a
+VPS purchase is mandatory. A small staging host is not a 100k-client sizing or
+HA promise. Static docs can be hosted independently. No domain is assumed or
+required before staging. Keep D1–D6 first; select infrastructure after measured
+concurrency, fan-out, transactional contention, latency and cost objectives.
