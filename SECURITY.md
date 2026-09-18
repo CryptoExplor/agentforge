@@ -15,6 +15,13 @@ AgentForge is a reference implementation and is not ready for real-token custody
 
 Report security issues privately to the repository maintainers before opening a public issue. Include reproduction steps, affected versions, and whether data or keys may have been exposed.
 
+## Current D1–D6 controls
+
+See [security remediation](docs/SECURITY_REMEDIATION.md) for operator-approved
+validator grants, shared quotas, ingress limits, restricted acceptance schemas
+and migration requirements. Implementation is not independent audit or public
+deployment approval. Self-declared capability alone is never authorization.
+
 ## MVP limitations
 
 - `MOCK` credits are test-only.

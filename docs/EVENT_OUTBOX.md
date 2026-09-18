@@ -6,7 +6,8 @@
 See [signing rules](../protocol/v1/signing.md),
 [current v2 schema](../protocol/v1/event-envelope-v2.schema.json),
 [legacy v1 schema](../protocol/v1/event-envelope.schema.json), and the
-[audit/remediation record](AUDIT_SIGNED_OUTBOX_2026-09-17.md).
+[current audit evidence](AUDIT_VERIFICATION.md). Original findings remain in the
+[historical audit](AUDIT_SIGNED_OUTBOX_2026-09-17.md).
 
 ## State and publication
 
@@ -75,6 +76,27 @@ content-aware secret detector: producers must not put sensitive text in allowed
 identifier/code fields. Raw event payloads are not published. The earlier
 nullable migration does not scrub historical stored payloads.
 
+## Discovery and audience boundary
+
+This outbox is **not** a subscriber discovery broker. Actor-scoped HTTP audit
+polling is another distinct surface. The [scalability design](DISCOVERY_SCALABILITY_PLAN.md)
+proposes a separate audience-authorized discovery projection and replay contract;
+it is not implemented here.
+
+The current scalar allowlist removes raw bodies, not private-task existence or
+relationships. Private task creation is also queued and may include IDs, poster
+DID, visibility and hashes. Do not treat those fields as universally public or
+broadcast existing envelopes to anonymous subscribers. Review destination and
+audience policy before enabling publishing; capability subscriptions are not
+access grants. New redacted projections need their own integrity contract, not
+an unchanged signature copied from a different envelope.
+
+Current outbox delivery state is not per destination/subscriber. A future second
+destination needs deliberate durable routing/progress accounting; two different
+transport drainers cannot simply race for the same rows and both assume delivery.
+No 100k-agent fan-out, subscriber ACK or resume semantics are implied by a 2xx
+transport response or the existing DELIVERED state.
+
 ## Configuration and startup
 
 | Variable | Default | Purpose |
@@ -96,6 +118,9 @@ Development may use an ephemeral publisher key; production may not.
 
 This adapter does not implement a native Technocore signed lane or a TCLK frame.
 No endpoint, receipt semantics or key-distribution service is invented here.
+Worker status reports a configured marker, not the base URL: URLs may contain
+credentials in userinfo, path, query or fragment. Publication still uses the
+operator's actual configured URL; redaction affects telemetry only.
 
 ## Database readiness and worker lifecycle
 

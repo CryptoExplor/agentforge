@@ -1,0 +1,219 @@
+{
+  "date": "2026-09-18",
+  "scope": "Resolved application/test dependencies; excludes editable AgentForge itself, OS/native PostgreSQL and audit-tool environment",
+  "tool": "pip-audit 2.10.1",
+  "command": "pip-audit --disable-pip --no-deps -r <pip freeze --exclude-editable output>",
+  "initial_cryptography_version": "46.0.7",
+  "initial_unique_advisories": [
+    {
+      "id": "PYSEC-2026-3554",
+      "aliases": [
+        "CVE-2026-69248",
+        "GHSA-m2h6-j472-rp4c"
+      ],
+      "fix_versions": [
+        "49.0.0"
+      ]
+    },
+    {
+      "id": "PYSEC-2026-3552",
+      "aliases": [
+        "GHSA-g6cj-pr64-35w5",
+        "CVE-2026-69247"
+      ],
+      "fix_versions": [
+        "50.0.0"
+      ]
+    },
+    {
+      "id": "PYSEC-2026-3553",
+      "aliases": [
+        "GHSA-jwv3-5hgf-82ww",
+        "CVE-2026-69249"
+      ],
+      "fix_versions": [
+        "49.0.0"
+      ]
+    },
+    {
+      "id": "GHSA-537c-gmf6-5ccf",
+      "aliases": [],
+      "fix_versions": [
+        "48.0.1"
+      ]
+    }
+  ],
+  "final_cryptography_version": "50.0.1",
+  "final_known_vulnerability_count": 0,
+  "skipped_dependency_count": 0,
+  "resolved_dependencies": [
+    {
+      "name": "alembic",
+      "version": "1.20.0"
+    },
+    {
+      "name": "annotated-doc",
+      "version": "0.0.5"
+    },
+    {
+      "name": "annotated-types",
+      "version": "0.8.0"
+    },
+    {
+      "name": "anyio",
+      "version": "4.15.1"
+    },
+    {
+      "name": "attrs",
+      "version": "26.1.0"
+    },
+    {
+      "name": "certifi",
+      "version": "2026.7.22"
+    },
+    {
+      "name": "cffi",
+      "version": "2.1.1"
+    },
+    {
+      "name": "click",
+      "version": "8.5.0"
+    },
+    {
+      "name": "cryptography",
+      "version": "50.0.1"
+    },
+    {
+      "name": "fastapi",
+      "version": "0.141.1"
+    },
+    {
+      "name": "greenlet",
+      "version": "3.5.6"
+    },
+    {
+      "name": "h11",
+      "version": "0.16.0"
+    },
+    {
+      "name": "httpcore",
+      "version": "1.0.9"
+    },
+    {
+      "name": "httptools",
+      "version": "0.8.0"
+    },
+    {
+      "name": "httpx",
+      "version": "0.28.1"
+    },
+    {
+      "name": "idna",
+      "version": "3.20"
+    },
+    {
+      "name": "iniconfig",
+      "version": "2.3.0"
+    },
+    {
+      "name": "jsonschema",
+      "version": "4.26.0"
+    },
+    {
+      "name": "jsonschema-specifications",
+      "version": "2025.9.1"
+    },
+    {
+      "name": "mako",
+      "version": "1.4.1"
+    },
+    {
+      "name": "markupsafe",
+      "version": "3.0.3"
+    },
+    {
+      "name": "packaging",
+      "version": "26.3"
+    },
+    {
+      "name": "pluggy",
+      "version": "1.6.0"
+    },
+    {
+      "name": "psycopg",
+      "version": "3.3.5"
+    },
+    {
+      "name": "psycopg-binary",
+      "version": "3.3.5"
+    },
+    {
+      "name": "pycparser",
+      "version": "3.0"
+    },
+    {
+      "name": "pydantic",
+      "version": "2.13.5"
+    },
+    {
+      "name": "pydantic-core",
+      "version": "2.46.5"
+    },
+    {
+      "name": "pygments",
+      "version": "2.21.0"
+    },
+    {
+      "name": "pytest",
+      "version": "9.1.1"
+    },
+    {
+      "name": "python-dotenv",
+      "version": "1.2.3"
+    },
+    {
+      "name": "pyyaml",
+      "version": "6.0.3"
+    },
+    {
+      "name": "referencing",
+      "version": "0.37.0"
+    },
+    {
+      "name": "rpds-py",
+      "version": "2026.6.3"
+    },
+    {
+      "name": "sqlalchemy",
+      "version": "2.0.54"
+    },
+    {
+      "name": "starlette",
+      "version": "1.6.0"
+    },
+    {
+      "name": "typing-inspection",
+      "version": "0.4.4"
+    },
+    {
+      "name": "typing-extensions",
+      "version": "4.16.0"
+    },
+    {
+      "name": "uvicorn",
+      "version": "0.53.0"
+    },
+    {
+      "name": "uvloop",
+      "version": "0.22.1"
+    },
+    {
+      "name": "watchfiles",
+      "version": "1.2.0"
+    },
+    {
+      "name": "websockets",
+      "version": "17.1"
+    }
+  ]
+}

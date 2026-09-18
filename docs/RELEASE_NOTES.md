@@ -1,43 +1,62 @@
 # AgentForge pre-testnet MVP release notes
 
-**Baseline date:** 2026-09-15 (Asia/Calcutta)
+## Unreleased — security/accounting follow-up (2026-09-18)
 
-## Included
+These are review-branch changes, not a release, merge or deployment announcement.
+Current publication state and verification results are maintained in
+[PROJECT_STATUS.md](PROJECT_STATUS.md) and
+[AUDIT_VERIFICATION.md](AUDIT_VERIFICATION.md).
 
-This archive is a source snapshot intended for upload to GitHub. It contains the AgentForge pre-testnet MVP, its protocol contract, tests, migration, Docker separation, and Markdown handoff files.
+### Fixed
 
-The audit-fix work covers claim expiry/reopen, persistent idempotency, conservative provenance, independent deterministic validation, private-resource authorization, mock escrow transitions, race-safe active claims, leased outbox delivery, cursor audit reads, migration boundaries, persisted inference submission links, Decimal accounting, disputes, and server-derived independence.
+- Provider-resolution follow-up: unsupported/invalid settlement configuration now
+  fails even after the mock singleton is cached or a test provider is injected.
+  Existing `mock`/`local` aliases are unchanged.
 
-## Verification summary
+- Atomic mock-ledger balance changes and account creation; replay checks compare
+  all immutable accounting fields, rather than trusting a reused key.
+- Exact bounded money arithmetic across funding, partial refunds, slash and
+  conservation; ambient Decimal precision can no longer silently erase debits.
+- Competing settlement, validation, dispute, cancel/claim and cross-task claim-limit
+  races guarded by transactional SQL writes.
+- Bounded mock-inference retention; HTTP retrieval remains authorized and SQL-backed.
+- Configuration URL secrets removed from transport/worker status output.
+- SDK identity files created privately and replaced atomically, without following
+  target symlinks or silently ignoring permission/write failures.
+- Dependency advisory remediation in both distributions: `cryptography>=50.0.1,<51`.
+- Duplicate status/verification/new-chat context consolidated into canonical docs;
+  dated evidence remains explicitly historical.
 
-- 16 pytest tests passed at the 2026-09-15 baseline; 24 pass on `main` after PR #1 and PR #2 were merged (see [`AUDIT_VERIFICATION.md`](AUDIT_VERIFICATION.md)).
-- Python compile check passed.
-- All protocol JSON Schema documents passed Draft 2020-12 meta-validation.
-- `protocol/v1/openapi.json` matched `agentforge_server.app.openapi()`.
-- SQLite Alembic upgrade/downgrade/upgrade passed at revision `3293de03bb66`.
-- PostgreSQL was not available in the build sandbox and must be checked in CI or a PostgreSQL environment before real deployment.
+### Preserved and verified
 
-## Usage warning
+- Outbox F1–F6 fixes: atomic expiry, full v2 causation, strict envelope schemas,
+  publisher preflight, fresh attempts and schema-startup guards.
+- D1–D6 controls, including root-only schema dialect declarations, operator grants,
+  ingress limits, shared quotas, closed production enrollment and no production faucet.
+- Existing public API methods, SDK flat imports/signing formats and envelope
+  compatibility. No new migration beyond the existing D1–D6 quota revision.
 
-`MOCK` and `TEST_CREDIT` are local test assets. They are not FLOP tokens, not official FLOP inference receipts, and not a promise of airdrop eligibility. The repository intentionally contains no airdrop scoring/farming automation and no guessed external settlement contract.
+### Compatibility notes
 
-## Merged since the baseline
+Money that cannot fit the existing 80-character storage representation fails
+closed; partial-settlement floats are rejected. Direct mock-provider cache lookups
+may raise `KeyError` after eviction; persisted HTTP sessions remain available.
+Transport status exposes only a configured marker instead of a URL.
+Identity saves require a trusted directory; failure no longer silently succeeds.
+See [accounting policy](ACCOUNTING_REMEDIATION.md) for transaction/retry rules.
 
-- PR #1 (`refactor: isolate mock settlement provider`, merge `4521722`) moved the local escrow behavior behind `SettlementProvider`/`MockSettlementProvider` without changing mock semantics.
-- PR #2 (`feat: add server-derived asset and mode guardrails`, merge `ecd9300`) added the `MOCK`/`TEST_CREDIT` allow-list, server-derived provider/deployment mode, and the zero-reward primary-asset fix.
-- The signed-outbox implementation proposed in actual GitHub PR #4 added the versioned `agentforge-event/1` envelope, the server publisher identity, actor/causation attribution, feature-flagged transport, delivery telemetry, and the worker service.
-- A documentation PR reconciled the status, verification, and repository-map documents with the merged provider boundary and guardrails.
+## Historical foundation
 
-## Next planned work
+The baseline/provider work established the neutral marketplace, mock settlement
+boundary and server-derived asset/mode guardrails. Actual PR #4 added the signed
+outbox foundation; subsequent remediation emits v2 for complete causation and
+retains honest v1 compatibility. Dated audit records preserve the original findings
+and checkpoint evidence; they are not the current test or merge status.
 
-Deferred, needs explicit scope approval: multi-validator consensus with dispute escalation, then the TCLK adapter and any official external provider. See [`PR_PLAN.md`](PR_PLAN.md), [`AUDIT_FEEDBACK_LOG.md`](AUDIT_FEEDBACK_LOG.md), and [`ARCHITECTURE_DECISIONS.md`](ARCHITECTURE_DECISIONS.md).
+## Non-goals and gates
 
-## Audit remediation on session branch
-
-- Current new-event envelope is `agentforge-event/2`, with the exact signed
-  request timestamp and schema-backed validation. Legacy v1 remains supported.
-- Atomic reaping/claim-use guards, publisher configuration preflight, fresh retry
-  state and schema/migration readiness address the six audit findings.
-- Regressions now run in the default suite and against PostgreSQL in CI; see
-  `docs/AUDIT_SIGNED_OUTBOX_2026-09-17.md` for the tested commit/run.
-- This is a proposed branch change, not a merge or deployment announcement.
+MOCK/TEST_CREDIT are not real assets or official FLOP receipts. No Activity Engine,
+vLLM adapter, live sensor, real settlement provider, broker, MCP, SDK modularization
+or deployment was added. Independent review and human-controlled merge remain
+mandatory. Later work follows [PR_PLAN.md](PR_PLAN.md), not an implicit roadmap
+execution or a promise of reward eligibility.

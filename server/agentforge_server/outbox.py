@@ -1,10 +1,9 @@
 """Retryable outbox helpers for coordination adapters.
 
-Delivery is at-least-once. Each attempt publishes the *same* signed canonical
-envelope for a given event, because the envelope is derived deterministically
-from the stored row and the current publisher key. Receivers must therefore
-deduplicate by ``event_id``; the envelope signature lets them prove that two
-copies of an event are the same published record rather than two transitions.
+Delivery is at-least-once. For an unchanged row and publisher configuration,
+attempts produce the same signed envelope. Key rotation changes the signature
+and key ID, not the event ID. Receivers must deduplicate by ``event_id`` (and
+check content consistency), not by signature bytes or delivery attempts.
 
 A disabled or unconfigured transport is a no-op: events stay ``PENDING`` with
 their attempt count untouched instead of being dead-lettered for a transport the

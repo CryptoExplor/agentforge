@@ -1,7 +1,13 @@
 # AgentForge architecture decisions
 
 **Decision status:** frozen for the audit-fix MVP
-**Last reviewed:** 2026-09-15 (Asia/Calcutta)
+**Last reviewed:** 2026-09-17 (Asia/Calcutta)
+
+**Current addendum:** [SDK/deployment plan](SDK_ARCHITECTURE_PLAN.md) and
+[deployment readiness](DEPLOYMENT_READINESS_2026-09-17.md). Baseline security
+rules below are intended invariants, not a claim that new exposure findings
+D1–D6 are independently verified. Their [working-tree remediation](SECURITY_REMEDIATION.md)
+is now implemented; public API deployment remains blocked pending audit.
 
 This is the short decision record for future contributors and GitHub coding agents. The longer rationale remains in [`../AGENTFORGE_ARCHITECTURE.md`](../AGENTFORGE_ARCHITECTURE.md) and [`../ANTIGRAVITY_IMPLEMENTATION_BRIEF.md`](../ANTIGRAVITY_IMPLEMENTATION_BRIEF.md).
 
@@ -169,3 +175,51 @@ Do not add any of the following without an explicit scope reversal:
 - client-controlled eligibility or network mode;
 - removal of the `MOCK`/non-official labeling;
 - a large validator-economics system for the MVP.
+
+
+## 8. SDK and deployment boundary (2026-09-17 design addendum)
+
+Keep a modular monolith and a stable public HTTP/protocol contract. Maintain one
+small standalone Python SDK; extract internals and add resource wrappers only
+in compatible increments after the new security work. Preserve existing flat
+methods/imports. If added, `client.resources` avoids collisions with the existing
+`client.events()` and `client.reputation()` methods. SDKs are optional clients,
+not server dependencies or the only way to implement the protocol.
+
+Server-side inference, settlement and event-transport adapters remain separate
+from public SDK dependencies. TCLK is coordination, not value settlement. No
+fake adapter, JS SDK or MCP package is authorized by this design. MCP, if needed,
+will use the same API authorization boundary, not duplicate business logic.
+The existing settlement port is ORM-coupled and mock-oriented; real asynchronous
+settlement may require reviewed core/migration changes, not merely a new file.
+
+Static frontend/docs on Vercel may be prepared independently of SDK refactoring.
+Keep the API private until D1–D6 and operational controls are verified; use a
+separate API service, PostgreSQL and continuous worker for staging. Correct and
+publish existing llms resources only with real links. No domain/hostname or
+new documentation URL is assumed. The detailed comparison, compatibility path,
+actual-file plan and acceptance gates are in [SDK_ARCHITECTURE_PLAN.md](SDK_ARCHITECTURE_PLAN.md).
+This addendum records a design, not code implementation or deployment approval.
+
+
+## 9. Discovery scale and hosting (2026-09-17 design addendum)
+
+Design toward 100k+ agent clients through selective task announcements and local
+filtering, not mandatory whole-catalogue polling or all-to-all broadcast. Keep
+ordinary HTTP clients compatible. The [scalability contract](DISCOVERY_SCALABILITY_PLAN.md)
+defines future privacy, replay, backpressure, versioning and measurement gates.
+It creates no new endpoint, schema, SDK method, broker or verified capacity.
+
+Keep actor-scoped audit `/api/v1/events`, signed outbox publication and proposed
+discovery separate. Use an additive discovery SDK namespace, not changed audit
+semantics. Private task IDs, participant DIDs, hashes and routing metadata may
+be sensitive; authorize projection, subscription and replay, not just final
+fetch. Capability routing is never authorization or execution eligibility.
+A notification is a hint; the signed claim and SQL state remain authoritative.
+
+Choose a VPS or suitable persistent container PaaS for API/worker lifecycle;
+managed PostgreSQL is an operational option. Neither a particular vendor nor a
+VPS purchase is mandatory. A small staging host is not a 100k-client sizing or
+HA promise. Static docs can be hosted independently. No domain is assumed or
+required before staging. Keep D1–D6 first; select infrastructure after measured
+concurrency, fan-out, transactional contention, latency and cost objectives.

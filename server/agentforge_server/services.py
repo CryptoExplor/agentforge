@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import case, func, select, update
@@ -29,7 +29,7 @@ from .models import (
 )
 
 
-ZERO = Decimal("0")
+from .money import ZERO, dec, money_string, money_sum
 
 
 def now() -> float:
@@ -141,6 +141,16 @@ def guard_active_claim(db: Session, claim: Claim) -> bool:
     return won and claim.status == "ACTIVE" and claim.lease_expires_at > now()
 
 
+def guard_pending_submission(db: Session, submission: Submission) -> bool:
+    """Serialize validation and dispute opening, including zero-value tasks."""
+    won = db.execute(update(Submission).where(
+        Submission.id == submission.id,
+        Submission.status.in_(["SUBMITTED", "DISPUTED"]),
+    ).values(status=Submission.status).execution_options(synchronize_session=False)).rowcount == 1
+    db.refresh(submission)
+    return won
+
+
 def reap_expired_claims(db: Session) -> int:
     """Expire each claim once; side effects belong to the CAS winner only.
 
@@ -205,20 +215,6 @@ def reap_expired_claims(db: Session) -> int:
     if touched or expired:
         db.commit()
     return count
-
-
-def dec(value: Any) -> Decimal:
-    try:
-        result = Decimal(str(value))
-    except (InvalidOperation, ValueError) as exc:
-        raise ValueError("invalid decimal value") from exc
-    if not result.is_finite() or result < ZERO:
-        raise ValueError("amount must be finite and non-negative")
-    return result
-
-
-def money_string(value: Decimal) -> str:
-    return format(value, "f")
 
 
 def capability_names(db: Session, did: str) -> set[str]:
@@ -505,24 +501,40 @@ def queue_outbox(
     return event
 
 
+class AccountingConflict(ValueError):
+    """Retry the entire transaction, never just its remaining ledger writes."""
+
+
+def _ledger_insert(db: Session, model):
+    dialect = db.get_bind().dialect.name
+    if dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert
+    elif dialect == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert
+    else:
+        raise RuntimeError("mock accounting requires SQLite or PostgreSQL")
+    return insert(model)
+
+
 def ensure_account(
     db: Session,
     did: str,
     asset: str = "MOCK",
     initial_balance: str = "0",
 ) -> LedgerAccount:
-    account = db.scalar(
-        select(LedgerAccount).where(
-            LedgerAccount.did == did,
-            LedgerAccount.asset == asset,
-        )
-    )
+    account = db.scalar(select(LedgerAccount).where(
+        LedgerAccount.did == did, LedgerAccount.asset == asset,
+    ))
     if account:
         return account
-    account = LedgerAccount(did=did, asset=asset, balance=money_string(dec(initial_balance)))
-    db.add(account)
-    db.flush()
-    return account
+    # Concurrent creation must not reset an existing balance or abort the
+    # transaction. Only the unique (did, asset) conflict is ignored.
+    db.execute(_ledger_insert(db, LedgerAccount).values(
+        did=did, asset=asset, balance=money_string(dec(initial_balance)),
+    ).on_conflict_do_nothing(index_elements=["did", "asset"]))
+    return db.scalar(select(LedgerAccount).where(
+        LedgerAccount.did == did, LedgerAccount.asset == asset,
+    ).execution_options(populate_existing=True))
 
 
 def post_ledger_event(
@@ -535,31 +547,53 @@ def post_ledger_event(
     idempotency_key: str,
     task_id: str | None = None,
 ) -> LedgerEvent:
-    existing = db.scalar(
-        select(LedgerEvent).where(LedgerEvent.idempotency_key == idempotency_key)
-    )
+    """Post an exact, idempotent event and atomic balance change together.
+
+    No internal commit/savepoint: callers MUST roll back the whole transaction
+    on any failure. In particular, do not commit a reserved event after a failed
+    debit. SQL CAS works on both supported databases without numeric casts or
+    trusting the ORM identity map. Contention is bounded and fails closed.
+    """
+    delta_text = money_string(delta)
+
+    def checked_replay(event):
+        if (event.did != did or event.asset != asset or
+                Decimal(event.amount_delta) != delta or event.reason != reason or
+                event.task_id != task_id):
+            raise ValueError("ledger idempotency key was reused with different content")
+        return event
+
+    existing = db.scalar(select(LedgerEvent).where(
+        LedgerEvent.idempotency_key == idempotency_key,
+    ))
     if existing:
-        return existing
+        return checked_replay(existing)
 
     account = ensure_account(db, did, asset)
-    current = dec(account.balance)
-    new_balance = current + delta
-    if new_balance < ZERO:
-        raise ValueError("insufficient mock balance")
+    event_id = new_id("LED")
+    inserted = db.scalar(_ledger_insert(db, LedgerEvent).values(
+        id=event_id, idempotency_key=idempotency_key, did=did, asset=asset,
+        amount_delta=delta_text, reason=reason, task_id=task_id, created_at=now(),
+    ).on_conflict_do_nothing(index_elements=["idempotency_key"]).returning(LedgerEvent.id))
+    if inserted is None:
+        # A competing transaction won this key. It has committed before the
+        # conflict insert returns; compare all immutable accounting content.
+        return checked_replay(db.scalar(select(LedgerEvent).where(
+            LedgerEvent.idempotency_key == idempotency_key,
+        ).execution_options(populate_existing=True)))
 
-    account.balance = money_string(new_balance)
-    event = LedgerEvent(
-        id=new_id("LED"),
-        idempotency_key=idempotency_key,
-        did=did,
-        asset=asset,
-        amount_delta=money_string(delta),
-        reason=reason,
-        task_id=task_id,
-        created_at=now(),
-    )
-    db.add(event)
-    return event
+    for _ in range(8):
+        current_text = db.scalar(select(LedgerAccount.balance).where(LedgerAccount.id == account.id))
+        new_balance = money_sum(dec(current_text), delta)
+        if new_balance < ZERO:
+            raise ValueError("insufficient mock balance")
+        won = db.execute(update(LedgerAccount).where(
+            LedgerAccount.id == account.id, LedgerAccount.balance == current_text,
+        ).values(balance=money_string(new_balance)).execution_options(synchronize_session=False))
+        if won.rowcount == 1:
+            db.refresh(account)
+            return db.get(LedgerEvent, event_id)
+    raise AccountingConflict("concurrent mock balance update; retry transaction")
 
 
 def fund_task(db: Session, task: Task) -> Escrow | None:

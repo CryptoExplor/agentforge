@@ -406,7 +406,7 @@ def test_enabled_but_unconfigured_transport_never_invents_an_endpoint(client, mo
     assert adapter.enabled is False
     assert adapter.status() == {
         "adapter": "technocore",
-        "base_url": settings.technocore_base_url,
+        "base_url": "<configured>" if settings.technocore_base_url else "",
         "enabled": False,
         "configured": False,
         "gossip_enabled": True,

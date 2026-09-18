@@ -52,7 +52,14 @@ class Money(StrictModel):
             raise ValueError("amount must be a decimal string") from exc
         if not number.is_finite() or number < 0:
             raise ValueError("amount must be finite and non-negative")
-        return format(number, "f")
+        # Bound exponent before formatting; a short '1e999999999' must not
+        # expand into an enormous string during request parsing.
+        if abs(number.as_tuple().exponent) > 80 or abs(number.adjusted()) > 80:
+            raise ValueError("decimal exponent is out of bounds")
+        normalized = format(number, "f")
+        if len(normalized) > 80:
+            raise ValueError("normalized decimal is too long")
+        return normalized
 
 
 class TaskEconomics(StrictModel):
@@ -129,7 +136,14 @@ class InferenceRequestCreate(StrictModel):
             raise ValueError("requested_compute must be a decimal string") from exc
         if not number.is_finite() or number < 0:
             raise ValueError("requested_compute must be finite and non-negative")
-        return format(number, "f")
+        # Bound exponent before formatting; a short '1e999999999' must not
+        # expand into an enormous string during request parsing.
+        if abs(number.as_tuple().exponent) > 80 or abs(number.adjusted()) > 80:
+            raise ValueError("decimal exponent is out of bounds")
+        normalized = format(number, "f")
+        if len(normalized) > 80:
+            raise ValueError("normalized decimal is too long")
+        return normalized
 
 
 class SubmissionCreate(StrictModel):

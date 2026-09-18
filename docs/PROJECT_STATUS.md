@@ -1,91 +1,81 @@
 # AgentForge project status
 
-**Snapshot date:** 2026-09-17 (Asia/Calcutta)
-**Release shape:** pre-testnet MVP, audit-fix baseline with the settlement provider boundary merged
-**Repository purpose:** a GitHub-ready handoff for future pull requests and small, reviewable commits
+**Canonical current-status summary — 2026-09-18 (Asia/Calcutta).**
 
-## Executive summary
+AgentForge is a **pre-testnet, neutral agent-work marketplace**. It is not a
+public-ready service, an official FLOP client, a fleet controller or a real-value
+settlement rail. Implementation-side tests are not independent approval.
 
-AgentForge is a protocol-oriented Agent Work Exchange reference implementation. It coordinates signed agent identities, task discovery, claim leases, mock inference, signed proof bundles, deterministic validation, disputes, role-specific reputation, an authenticated audit stream, a retryable coordination outbox, and a local mock ledger.
+## Current work
 
-The audit-fix implementation is complete for the frozen MVP scope. The code is intentionally conservative and provider-agnostic. It does **not** claim to be an official FLOP client, a TCLK settlement implementation, an airdrop calculator, or a hosted arbitrary-agent execution service.
+Implemented in this review revision:
 
-## What is in this baseline
+- Signed-outbox audit fixes F1–F6: atomic expiry, complete v2 causation, publisher
+  preflight, versioned schema enforcement, startup guards and fresh retry state.
+- D1–D6 security controls: operator-approved validators, bounded acceptance
+  schemas/ingress, SQL-shared admission, safe route ordering and decimal parsing.
+- Exact transactional mock accounting, replay-content checks, concurrent account
+  creation and guarded settlement/validation/dispute/cancel/claim transitions.
+- Settlement configuration checked before cached/injected provider resolution;
+  unsupported configuration cannot silently reuse the mock singleton.
+- Bounded mock-inference cache; configuration URL redaction in worker status logs.
+- Atomic, private-from-creation SDK identity saves; failures preserve the old
+  file and target symlinks are not followed.
+- Server and standalone SDK dependency floor `cryptography>=50.0.1,<51`, following
+  advisory scanning. Existing SDK methods and signing formats are unchanged.
+- Current status, verification, technical policy and roadmap docs separated to
+  remove repeated handoff prompts and contradictory historical test counts.
 
-- FastAPI API under `/api/v1`.
-- Ed25519 `did:key` registration and signed requests.
-- Persistent idempotency records with replay and conflict behavior.
-- Expiring claims, direct expiry checks, a reaper, and a database active-claim backstop.
-- Public/private task authorization with fail-closed private payload reads.
-- Mock inference receipts with separate requested, measured, paid, and verified compute fields.
-- Submission proof hashes, evidence checks, declarative result-schema checks, and inference receipt integrity checks.
-- Server-derived provenance trust and independence/anti-circularity checks.
-- Immutable validation decisions and idempotent dispute/settlement paths.
-- Explicit mock `FULL_RELEASE`, `PARTIAL_RELEASE`, `REFUND`, and `SLASH` transitions.
-- A signed event outbox: versioned envelopes (current `agentforge-event/2`, legacy v1 supported) with actor
-  attribution (DID plus verified request causation) and server publisher
-  attribution, feature-flagged transport, retries with backoff, dead-letter,
-  delivery telemetry, and an operator-supplied publish path.
-- An isolated `SettlementProvider` boundary (`settlement.py`,
-  `adapters/mock_settlement.py`) with a server-derived `MOCK`/`TEST_CREDIT`
-  allow-list, a primary escrow asset derived from the first funded component,
-  and rejection of unsupported assets and providers.
-- Decimal-string ledger accounting, append-only ledger/reputation/audit events, and outbox delivery leases.
-- Alembic initial schema and development-only `create_all`/faucet behavior.
-- Python SDK, protocol JSON Schemas, signing documentation, OpenAPI, Docker configurations, and CI.
+See [verification and audit findings](AUDIT_VERIFICATION.md) for exact test counts,
+commands, dependency evidence and limitations. Technical controls live in
+[security remediation](SECURITY_REMEDIATION.md),
+[accounting remediation](ACCOUNTING_REMEDIATION.md) and [event outbox](EVENT_OUTBOX.md).
 
-## What is deliberately not in this baseline
+## Review publication
 
-- No real FLOP contract, fee, receipt, eligibility, airdrop, referral, or farming logic.
-- No TCLK state-machine or cryptography copied into AgentForge.
-- No custom HTLC/PTLC or invented external settlement API.
-- No official FLOP participation claim for mock/local inference or mock credits.
-- No arbitrary external-agent code execution inside the API process.
-- No promise that a task is `ECONOMIC_ELIGIBLE` or `EXTERNAL_NETWORK_VERIFIED` because a client requested that status.
-- No settlement provider other than the local mock. The boundary exists and rejects any other provider name at call time, but there is still no external rail, deal-reference model, or TCLK adapter to configure.
+The maintainer authorized committing and pushing the completed patch to existing
+[PR #5](https://github.com/CryptoExplor/agentforge/pull/5) for local-agent review.
+This revision is based on its previous remote head
+`bd6bf59d6f3bdb8229cd9736ed58bcf680c37920`, retaining all four commits after the
+restored local baseline `3986dd1`. No existing shared history is rewritten.
 
-## Verification result
-
-Historical checks below were recorded for the signed-outbox snapshot `3986dd1`,
-not evidence that its implementation was merged into `main`. Current remediation
-results are in [the audit record](AUDIT_SIGNED_OUTBOX_2026-09-17.md).
-
-| Check | Result |
+| Item | Review handoff |
 |---|---|
-| `python -m pytest -q` | **52 passed**, 2 Starlette/httpx deprecation warnings |
-| `python -m compileall -q server sdk tests examples` | **Passed** |
-| JSON Schema meta-validation for `protocol/v1/*.schema.json` | **Passed**, 6 of 6 |
-| Generated FastAPI OpenAPI compared with `protocol/v1/openapi.json` | **Match**, 22 paths |
-| Alembic SQLite `upgrade head -> downgrade base -> upgrade head` | **Passed**, revision `c4d5e6f7a8b9` |
-| `git diff --check` | **Clean** |
-| GitHub Actions CI on `main` | **Success** (run `35153608459`) |
-| PostgreSQL integration run | **Not run in the sandbox**; no Docker, Podman, or `psql` executable was available |
+| [PR #4](https://github.com/CryptoExplor/agentforge/pull/4) | Previously merged into `main` at `4aee54199e9c1376313c47d6562ccc03de491a02` |
+| PR #5 | Open; review branch `arena/01a0af8f-agentforge` |
+| PR #5 base | `arena/01a0af63-agentforge`, **not `main`**; not retargeted |
+| Review revision | Fetch the current PR head and record its SHA; the PR handoff comment identifies the pushed commit |
 
-See [`AUDIT_VERIFICATION.md`](AUDIT_VERIFICATION.md) for requirement-by-requirement traceability and exact test names.
+The local agent's earlier 99-test result at `bd6bf59` does not cover these newer
+changes. Use the commands in [AUDIT_VERIFICATION.md](AUDIT_VERIFICATION.md).
+Local test evidence and earlier PostgreSQL/package/advisory results are labeled
+separately from live CI. Publishing for review is not independent approval,
+a merge or authorization to deploy. The human maintainer decides the eventual
+PR base and merge; agents must not merge, close, force-push or self-approve.
 
-## Where the repository stands today
+## Blocked and deferred
 
-Actual GitHub PR numbers and roadmap phase numbers are different. PR #3 was
-the docs reconciliation; PR #4 proposed the signed-outbox implementation. This
-session's remediation builds on that implementation. Neither a roadmap label
-nor this status document is evidence of a merge. Query GitHub for current PR
-state; only the human maintainer decides and performs merges.
+- The requested external `scripts/activity_engine/` implementation and named
+  databases are absent. Its six P0 proposals are reviewed, not implemented or
+  verified here: [external-client review](ACTIVITY_ENGINE_P0_REVIEW.md).
+- Independent local-agent audit and maintained-release PostgreSQL CI are pending.
+  Human maintainer alone decides and performs merges.
+- No broker, MCP, discovery subscription API, large SDK rewrite, external provider,
+  OCI/Vercel deployment or agent pilot was performed.
+- Outbox redaction is not audience authorization. Keep gossip disabled unless an
+  explicitly approved audience policy protects private metadata.
+- Existing SDK flat imports/methods remain supported (`list_tasks`, `get_task`;
+  `client.tasks()` is not an existing method).
 
-Read these files in order before starting new work:
+## Next gates, not execution authorization
 
-1. [`GITHUB_HANDOFF.md`](GITHUB_HANDOFF.md)
-2. [`AUDIT_VERIFICATION.md`](AUDIT_VERIFICATION.md)
-3. [`ARCHITECTURE_DECISIONS.md`](ARCHITECTURE_DECISIONS.md)
-4. [`PR_PLAN.md`](PR_PLAN.md)
-5. [`REPOSITORY_MAP.md`](REPOSITORY_MAP.md)
+Independent review → minimal compatible SDK/static documentation and correct
+`llms` publication → protected staging → 5–10 ordinary-agent pilot → measured
+10/25/50/100-agent progression. Registered agents are not concurrent clients;
+100k+ remains a design horizon, not measured capacity.
 
-Each new PR should stay the size of its predecessors: one cohesive change,
-focused regression tests, no invented FLOP or TCLK assumptions. The next planned
-priority is the six signed-outbox audit fixes, regression verification and
-independent review. Multi-validator consensus remains a future scope proposal,
-not an assigned GitHub PR number. The TCLK adapter and any official external provider remain blocked on
-published specifications.
-
-## Known verification limitation
-
-The sandbox did not provide a PostgreSQL server/client, so the PostgreSQL dialect and production-like compose path still need to be exercised in GitHub Actions or a developer environment. SQLite migration round-trip and the SQLAlchemy model metadata were verified locally; that is not a substitute for PostgreSQL integration coverage.
+The accepted [SDK](SDK_ARCHITECTURE_PLAN.md) and
+[discovery scalability](DISCOVERY_SCALABILITY_PLAN.md) designs are retained,
+not rolled back or implemented by this security follow-up. The
+[integration boundaries](INTEGRATION_BOUNDARIES.md) remain binding. See
+[PR plan](PR_PLAN.md) for the short review sequence.

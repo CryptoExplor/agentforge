@@ -1,96 +1,44 @@
-# Pull-request and commit plan
+# Review and pull-request plan
 
-This plan keeps the GitHub history easy to review. The baseline import and the future provider work are separate.
+This is a sequence of **gates**, not GitHub PR numbers, suggested new branches,
+or authorization to execute every phase. Actual PR state is recorded only in
+[PROJECT_STATUS.md](PROJECT_STATUS.md).
 
-## Baseline import commit
+## Current gate: security and accounting review
 
-**Suggested subject:** `chore: import verified AgentForge MVP`
+Review the preserved working-tree fixes against
+[AUDIT_VERIFICATION.md](AUDIT_VERIFICATION.md),
+[SECURITY_REMEDIATION.md](SECURITY_REMEDIATION.md) and
+[ACCOUNTING_REMEDIATION.md](ACCOUNTING_REMEDIATION.md).
+Independent local-agent review follows implementation-side testing. The human
+maintainer alone decides and performs merges. Publication must use the assigned
+session branch; reconcile the intended PR base without resetting local work or
+rewriting shared history.
 
-The baseline commit contains the current server, SDK, protocol contract, tests, Docker files, and the Markdown handoff/verification documents. It should not contain `.env`, `agentforge.db`, private keys, caches, or Python bytecode.
+## Later gates
 
-## Current roadmap position
+| Gate | Scope | Required before proceeding |
+|---|---|---|
+| Compatible SDK and static docs | Small Python SDK extraction preserving flat imports/methods; correct published Markdown/`llms` links, no invented URLs | Security review and explicit implementation scope |
+| Protected staging | Migrated PostgreSQL, closed enrollment, configured reviewer grants, transport disabled unless authorized | Maintainer approval, deployment/security/backup/rollback plan |
+| Small pilot | 5–10 ordinary independent agents through public API/SDK | Staging verification; no privileged client or real-value claims |
+| Measured growth | Approximate 10/25/50/100-agent progression; concurrency, latency, SQL contention and worker backlog measurements | Evidence from the previous stage, not registered-agent counts |
+| Optional external integration | Only a concrete approved provider/coordination need; official pinned interfaces, evidence and failure policy | Separate design/security review; no speculative FLOP/TCLK implementation |
 
-The numbered phases below are planning labels, **not GitHub PR numbers**.
-Actual PR #3 was docs reconciliation; actual PR #4 proposed signed-outbox work.
-Do not infer merge status from a roadmap or rename history to fit phase numbers.
+Accepted [SDK design](SDK_ARCHITECTURE_PLAN.md),
+[discovery design](DISCOVERY_SCALABILITY_PLAN.md) and
+[architecture decisions](ARCHITECTURE_DECISIONS.md) remain in force. A 100k+ client
+horizon does not justify a broker or imply simultaneous capacity. A deal-reference
+model requires an actual external integration; TCLK is not a settlement rail.
+Client fleet strategy never becomes marketplace policy.
 
-Current priority: remediate the six signed-outbox findings, move regression
-coverage into the default suite, verify database/concurrency behavior and obtain
-independent review. See [the audit record](AUDIT_SIGNED_OUTBOX_2026-09-17.md).
-Only the maintainer merges. TCLK/FLOP integrations remain deferred until official
-interfaces are available, reviewed and separately approved. No external client
-or activity-bot implementation belongs in this roadmap.
+## Review checklist
 
-## Planned PR sequence
-
-### PR 1 — Settlement provider boundary — **merged** (`4521722`)
-
-**Suggested branch:** `refactor/settlement-provider-boundary`
-**Suggested commits:**
-
-1. `refactor: define settlement provider interface`
-2. `refactor: route mock escrow through provider`
-3. `test: preserve mock settlement invariants`
-4. `docs: document provider boundary`
-
-**Must preserve:** local mock behavior, Decimal accounting, event IDs, idempotency, slash destination, private balances, and terminal-state exclusivity.
-
-**Must not add:** FLOP API names, imagined contracts, new client mode fields, or external provider behavior.
-
-### PR 2 — Asset and mode guardrails — **merged** (`ecd9300`)
-
-**Suggested branch:** `feat/server-derived-settlement-modes`
-
-- Reject `FLOP` through the local provider.
-- Keep `MOCK` and `TEST_CREDIT` local-only.
-- Derive provider/deployment mode from server configuration.
-- Keep eligibility statuses separate and server-derived.
-- Add negative tests for client attempts to choose a network or eligibility status.
-- Derive the primary escrow asset from the first funded component so zero-reward
-  tasks funded in `TEST_CREDIT` are accepted.
-
-### PR 3 — Durable external deal reference
-
-**Suggested branch:** `feat/settlement-deal-reference`
-
-Only add this when there is a concrete integration need. The model/migration may persist protocol, rail, contract/deal ID, offer/accept hashes, transcript digest, observed status, and terminal receipt. It must not persist secrets, keys, preimages, or private task payloads.
-
-Migration acceptance requires:
-
-- upgrade and downgrade coverage;
-- no destructive data rewrite;
-- authorization on deal reads;
-- idempotent link/update behavior;
-- explicit receipt verification status.
-
-### PR 4 — Optional TCLK coordination adapter
-
-**Suggested branch:** `feat/gated-tclk-adapter`
-
-- Pin an official revision or checked-out MCP version.
-- Keep the adapter thin, stateless where the upstream contract is stateless, and feature-flagged.
-- Store hashes/references, not secrets or private task payloads.
-- Treat PAPER/transcript outcomes as coordination observations, not external value settlement.
-- Do not copy TCLK cryptography or duplicate its state machine.
-
-### PR 5 — Official external provider
-
-This PR is blocked until official testnet specifications/SDKs define the interface. It must include provider conformance fixtures, receipt verification, failure/retry behavior, and a public statement of exactly what is and is not verified. No airdrop logic belongs here unless a separate, explicitly approved product scope says so.
-
-## PR review checklist
-
-- [ ] Scope is one cohesive change.
-- [ ] Existing tests pass.
-- [ ] New behavior has focused regression tests.
-- [ ] Idempotency and authorization were reviewed.
-- [ ] Migrations have upgrade/downgrade coverage.
-- [ ] `protocol/v1/openapi.json` is synchronized if routes/schemas changed.
-- [ ] JSON Schemas validate.
-- [ ] No secrets, database files, or generated caches are included.
-- [ ] No FLOP/TCLK assumptions were invented.
-- [ ] Docs identify deferred work and non-goals.
-- [ ] `git diff --check` is clean.
-
-## Commit hygiene
-
-Prefer small commits that each leave the tree buildable. Avoid “fix everything” commits after the baseline. When a public protocol changes, put the implementation, tests, schema/OpenAPI update, and documentation in one cohesive PR, but keep unrelated refactors out.
+- [ ] One cohesive, inspectable change; existing work preserved.
+- [ ] Public API/SDK/signing compatibility stated.
+- [ ] Authorization, replay, precision and transaction failure paths reviewed.
+- [ ] Focused regressions, full suite, relevant PostgreSQL tests and contracts pass.
+- [ ] Migration/rollback and installed-wheel behavior verified where affected.
+- [ ] Dependency advisories checked; no secrets, caches, tools or databases tracked.
+- [ ] Current evidence lives in the canonical audit record; historical docs labeled.
+- [ ] Independent review obtained; human merge decision remains separate.

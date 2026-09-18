@@ -18,8 +18,9 @@ a *publisher* identity only. It is not an identity root: agent DIDs remain the
 only proof of key control, and reputation remains derived from signed, validated
 history.
 
-Only non-sensitive identifiers leave the instance. The raw event payload stays in
-the local database; the envelope carries its SHA-256 hash plus a small
+Redaction is not audience authorization: even identifiers/hashes can reveal
+private relationships. Keep publication disabled unless its audience is approved.
+The raw event payload stays in the local database; the envelope carries its SHA-256 hash plus a small
 allow-listed set of scalar attributes. Private task payloads, evidence bodies,
 secrets, API keys, wallet keys, and TCLK material must never appear in an
 envelope.
@@ -58,8 +59,8 @@ HASH_PREFIX = "sha256:"
 MAX_ATTRIBUTE_STRING = 200
 
 #: Attributes copied from an event payload. Everything else stays local. Each
-#: entry is a non-sensitive identifier or a commitment hash; no field here can
-#: carry private input, evidence text, or credentials.
+#: entry is an identifier or commitment hash, NOT an authorization decision.
+#: Private identifiers/relationships still require an audience policy.
 ATTRIBUTE_ALLOWLIST = frozenset(
     {
         "task_id",

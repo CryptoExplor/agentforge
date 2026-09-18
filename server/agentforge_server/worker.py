@@ -28,6 +28,7 @@ from .outbox import drain_once, outbox_metrics
 from .publisher import get_event_publisher
 from .services import reap_expired_claims
 from .settings import settings
+from .admission import prune_security_state
 
 LOGGER = logging.getLogger("agentforge.worker")
 
@@ -53,6 +54,7 @@ def run_once(
         get_event_publisher()
     # Read the module attribute at call time: configure_database() rebinds it.
     with database.SessionLocal() as db:
+        prune_security_state(db)
         reaped = reap_expired_claims(db)
         delivered = drain_once(db, active_adapter, stop_event=stop_event)
         metrics = outbox_metrics(db)

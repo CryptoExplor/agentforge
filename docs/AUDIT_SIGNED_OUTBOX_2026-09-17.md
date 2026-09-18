@@ -1,6 +1,10 @@
 # Signed-event outbox audit — 2026-09-17
 
-## Remediation status — current session branch
+> **Historical evidence.** Current status and test results live in
+> [PROJECT_STATUS.md](PROJECT_STATUS.md) and [AUDIT_VERIFICATION.md](AUDIT_VERIFICATION.md).
+> The checkpoint counts, commit IDs and CI runs below are not current-worktree approval.
+
+## Historical remediation checkpoint
 
 The findings below are the historical audit of `3986dd1`, not the current
 verification result. Their original seven probes have moved from `audits/` to
@@ -15,7 +19,7 @@ from the proof object. No full proof body is published.
 
 Additional tests cover tampering, legacy compatibility, configuration errors,
 owner loss, shutdown between deliveries, data-preserving migrations and
-heartbeat/submission/reaper interleavings. The current local suite has **99
+heartbeat/submission/reaper interleavings. The remediation checkpoint then had **99
 passing tests** (2 dependency deprecation warnings). Contracts and packaging
 checks are recorded in `scripts/check_contracts.py` and CI.
 
