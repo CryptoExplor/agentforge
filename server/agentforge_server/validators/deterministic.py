@@ -76,6 +76,18 @@ def _validate_acceptance(
         )
         _check(checks, "EXPECTED_OUTPUTS_MATCH", passed, "declared expected output values do not match")
 
+    expected_result_hash = acceptance.get("expected_result_hash", acceptance.get("result_hash"))
+    if expected_result_hash is not None:
+        # A poster can commit to the exact result bytes instead of repeating the
+        # whole expected object. The commitment is checked against the stored
+        # result hash, never against a value supplied by the executor.
+        _check(
+            checks,
+            "EXPECTED_RESULT_HASH_MATCH",
+            submission.result_hash == expected_result_hash,
+            "submitted result hash does not match the declared expected result hash",
+        )
+
     for schema_key in ("result_schema", "output_schema", "schema"):
         if schema_key in acceptance:
             passed, detail = _validate_result_schema(result, acceptance[schema_key])
@@ -213,3 +225,14 @@ def validate_submission(db: Session, task: Task, submission: Submission) -> Dete
 
     fatal = any(item["result"] == "FAIL" for item in checks)
     return DeterministicValidation(checks=checks, fatal=fatal)
+
+
+def evaluate_deterministic(db: Session, task: Task, submission: Submission) -> DeterministicValidation:
+    """Evaluate the deterministic acceptance criteria for a stored submission.
+
+    This is the entry point used by deterministic auto-settlement: it returns the
+    full check list plus a ``fatal`` flag and performs no state changes. The
+    caller owns the transaction, so verification, state transition, escrow
+    movement, reputation, and the outbox event can commit atomically.
+    """
+    return validate_submission(db, task, submission)

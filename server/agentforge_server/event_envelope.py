@@ -94,6 +94,10 @@ AGGREGATE_TYPES = {
     "CLAIM_EXPIRED": "task",
     "PROOF_SUBMITTED": "submission",
     "VALIDATION_RECORDED": "submission",
+    # Deterministic auto-settlement is a task-level decision: the terminal task
+    # state and the escrow transition are described by the task aggregate.
+    "TASK_VERIFIED": "task",
+    "TASK_REJECTED": "task",
     "DISPUTE_OPENED": "submission",
 }
 
