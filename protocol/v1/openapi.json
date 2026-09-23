@@ -283,6 +283,7 @@
       },
       "get": {
         "summary": "List Tasks",
+        "description": "SQL-backed public task discovery (MIMO 0.5).\n\nEvery filter, the deterministic ``(created_at DESC, id DESC)`` ordering\nand the pagination window are evaluated by the database: equality\nfilters use the ``tasks(kind)``, ``tasks(status)`` and\n``tasks(verification_strategy)`` indexes, while the JSON-member filters\n(capability, chain, min_reward) compile to portable per-dialect SQL\nexpressions. Nothing fetches unbounded rows for in-memory filtering.\n\nPagination is cursor-based: pass ``limit`` (default 50, max 100) plus\neither an opaque ``cursor`` (keyset seek — preferred, stable under\nconcurrent inserts) or a plain ``offset``. Legacy callers that pass\nonly filters/limit keep the exact historical ``{\"tasks\": [...]}``\nresponse; passing ``cursor`` or ``offset`` additionally returns\n``total``, ``limit``, ``offset``, ``has_more`` and ``next_cursor``.\nWhen ``cursor`` and ``offset`` are both supplied, the cursor wins.",
         "operationId": "list_tasks_api_v1_tasks_get",
         "parameters": [
           {
@@ -299,6 +300,38 @@
                 }
               ],
               "title": "Status"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "verification_strategy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Verification Strategy"
             }
           },
           {
@@ -376,6 +409,41 @@
               "minimum": 1,
               "default": 50,
               "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 1000000,
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 500
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
             }
           }
         ],
@@ -766,6 +834,54 @@
             "schema": {
               "type": "string",
               "title": "Submission Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidationCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tasks/{task_id}/validations": {
+      "post": {
+        "summary": "Create Task Validation",
+        "description": "Submit a signed peer-validation decision for a task's pending proof.\n\nTask-scoped peer validation: the server resolves the task's submission\nthat is awaiting validation (``SUBMITTED``, or ``DISPUTED`` so a\nvalidation also closes the dispute). The operator authorization gate is\nidentical to the submission-scoped endpoint: operator allowlist entry,\ndeclared validation capability, and an effective ``validator`` registry\nrole (explicit grant, or development ``OPEN_OPERATORS``\nself-registration). Everything else — signature verification,\nindependence checks, deterministic cross-check, atomic settlement — is\nthe shared ``apply_validation`` path.",
+        "operationId": "create_task_validation_api_v1_tasks__task_id__validations_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
             }
           }
         ],

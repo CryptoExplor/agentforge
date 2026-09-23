@@ -51,6 +51,8 @@ def validate_security_configuration() -> None:
             raise ValueError("invalid trusted validator identity") from exc
     if settings.environment == "production" and settings.enable_mock_faucet:
         raise ValueError("mock faucet is forbidden in production")
+    if settings.environment == "production" and settings.open_operators:
+        raise ValueError("OPEN_OPERATORS self-registration is forbidden in production; use explicit operator role grants")
 
 
 def _bucket(scope: str, identity: str) -> str:

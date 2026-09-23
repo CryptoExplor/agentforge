@@ -39,6 +39,33 @@ class AgentCapability(Base):
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
 
 
+class OperatorRoleGrant(Base):
+    """Operator-registry role grant (Grok roadmap 1.1).
+
+    A declared capability never grants authority on its own: submitting
+    validation decisions requires an explicit, revocable row in this table
+    (or, in development-only ``OPEN_OPERATORS`` mode, a self-registration
+    fallback that keeps local suites working). ``status`` allows revocation
+    without deleting the audit trail; ``granted_by`` records the granting
+    operator DID, or NULL when the role was self-granted in open mode.
+    """
+
+    __tablename__ = "operator_role_grants"
+    __table_args__ = (
+        UniqueConstraint("agent_did", "role", name="uq_operator_role_grant"),
+        Index("ix_operator_role_grant_agent", "agent_did"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    agent_did: Mapped[str] = mapped_column(ForeignKey("agents.did"), nullable=False)
+    role: Mapped[str] = mapped_column(String(40), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), default="ACTIVE", nullable=False)
+    granted_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[float] = mapped_column(Float, nullable=False)
+    revoked_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
 class RegistrationChallenge(Base):
     __tablename__ = "registration_challenges"
     __table_args__ = (Index("ix_registration_challenges_expiry", "expires_at"),)
@@ -86,6 +113,8 @@ class Task(Base):
         Index("ix_task_status", "status"),
         Index("ix_task_poster", "poster_did"),
         Index("ix_task_deadline", "deadline"),
+        Index("ix_task_kind", "kind"),
+        Index("ix_task_verification_strategy", "verification_strategy"),
     )
 
     id: Mapped[str] = mapped_column(String(80), primary_key=True)

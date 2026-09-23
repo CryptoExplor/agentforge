@@ -15,7 +15,7 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
-from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy import Float, String, and_, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -23,6 +23,7 @@ from starlette.concurrency import run_in_threadpool
 
 from .admission import AdmissionDenied, consume_authenticated, validate_security_configuration
 from .middleware import MAX_BODY_BYTES, RequestSecurityMiddleware
+from . import operators as operator_registry
 from .validators.result_schema import UnsafeSchema, check_result_schema
 from . import db as database
 from .crypto import (
@@ -334,6 +335,30 @@ def create_app() -> FastAPI:
             "reputation": reputation_for(db, agent.did),
         }
 
+    def require_validator_operator(db: Session, did: str) -> None:
+        """Operator authorization gate for peer-validation decisions (Grok 1.1).
+
+        Three independent conditions must hold before an agent may submit a
+        validation decision:
+
+        1. the DID is on the operator-approved validator allowlist
+           (``AGENTFORGE_TRUSTED_VALIDATOR_DIDS``) — existing D1 control;
+        2. the agent declares a ``validation``/``validator`` capability;
+        3. the agent holds an effective ``validator`` registry role: an
+           ``ACTIVE`` row in ``operator_role_grants``, or — only while the
+           development ``OPEN_OPERATORS=true`` self-registration mode is
+           enabled — its declared capability.
+
+        A capability alone is never authority: in restricted mode a missing or
+        revoked registry grant is rejected with 403
+        ("agent not authorized as validator"). The check runs before
+        idempotency replay, so a revoked role cannot replay a past decision.
+        """
+        if did not in settings.trusted_validator_dids or not {"validation", "validator"}.intersection(capability_names(db, did)):
+            raise http_error(403, "validator is not approved or validation-capable")
+        if not operator_registry.validator_role_active(db, did):
+            raise http_error(403, "agent not authorized as validator")
+
     def escrow_view(db: Session, task_id: str) -> dict[str, Any] | None:
         escrow = db.get(Escrow, task_id)
         if not escrow:
@@ -469,6 +494,7 @@ def create_app() -> FastAPI:
             agent.updated_at = timestamp
 
         db.execute(delete(AgentCapability).where(AgentCapability.agent_did == body.did))
+        declared_capabilities: set[str] = set()
         for item in body.manifest.capabilities:
             if isinstance(item, str):
                 name, level, metadata = item, 1, {}
@@ -477,6 +503,7 @@ def create_app() -> FastAPI:
                 name = item_data["name"]
                 level = item_data.get("level", 1)
                 metadata = item_data.get("metadata", {})
+            declared_capabilities.add(name)
             db.add(
                 AgentCapability(
                     agent_did=body.did,
@@ -485,6 +512,17 @@ def create_app() -> FastAPI:
                     metadata_json=metadata,
                 )
             )
+
+        # Operator registry (Grok 1.1): only in development OPEN_OPERATORS mode
+        # does a declared validation capability self-grant the registry role, so
+        # local dev suites keep working without an explicit operator grant. A
+        # savepoint contains a concurrent self-grant race; an operator-revoked
+        # grant is never resurrected here.
+        try:
+            with db.begin_nested():
+                operator_registry.ensure_self_grant(db, body.did, declared_capabilities)
+        except IntegrityError:
+            pass
 
         if is_new and settings.enable_mock_faucet:
             from .services import ensure_account
@@ -654,59 +692,136 @@ def create_app() -> FastAPI:
             raise http_error(409 if isinstance(exc, AccountingConflict) else 400, str(exc))
         return response_body
 
+    def decode_task_cursor(cursor: str) -> tuple[float, str]:
+        try:
+            padded = cursor + "=" * (-len(cursor) % 4)
+            decoded = json.loads(base64.urlsafe_b64decode(padded.encode()).decode())
+            created = float(decoded["created_at"])
+            task_id = str(decoded["id"])
+            if not math.isfinite(created):
+                raise ValueError("cursor timestamp must be finite")
+        except (ValueError, KeyError, TypeError, binascii.Error, json.JSONDecodeError) as exc:
+            raise http_error(400, "invalid task cursor") from exc
+        return created, task_id
+
     @app.get("/api/v1/tasks")
     def list_tasks(
         status: str | None = None,
+        kind: str | None = None,
+        verification_strategy: str | None = None,
         capability: str | None = None,
         chain: str | None = None,
         origin: str | None = None,
         min_reward: str | None = Query(default=None, max_length=80),
         limit: int = Query(default=50, ge=1, le=100),
+        offset: int | None = Query(default=None, ge=0, le=1_000_000),
+        cursor: str | None = Query(default=None, max_length=500),
         db: Session = Depends(get_db),
     ):
-        result = []
-        response_bytes = 0
-        from .services import dec
+        """SQL-backed public task discovery (MIMO 0.5).
 
-        minimum = None
+        Every filter, the deterministic ``(created_at DESC, id DESC)`` ordering
+        and the pagination window are evaluated by the database: equality
+        filters use the ``tasks(kind)``, ``tasks(status)`` and
+        ``tasks(verification_strategy)`` indexes, while the JSON-member filters
+        (capability, chain, min_reward) compile to portable per-dialect SQL
+        expressions. Nothing fetches unbounded rows for in-memory filtering.
+
+        Pagination is cursor-based: pass ``limit`` (default 50, max 100) plus
+        either an opaque ``cursor`` (keyset seek — preferred, stable under
+        concurrent inserts) or a plain ``offset``. Legacy callers that pass
+        only filters/limit keep the exact historical ``{"tasks": [...]}``
+        response; passing ``cursor`` or ``offset`` additionally returns
+        ``total``, ``limit``, ``offset``, ``has_more`` and ``next_cursor``.
+        When ``cursor`` and ``offset`` are both supplied, the cursor wins.
+        """
+        reap_expired_claims(db)
+
+        minimum: float | None = None
         if min_reward is not None:
             try:
-                minimum = Decimal(min_reward)
+                parsed = Decimal(min_reward)
             except InvalidOperation:
                 raise http_error(422, "min_reward must be a finite nonnegative decimal")
-            if not minimum.is_finite() or minimum < 0 or abs(minimum.adjusted()) > 80:
+            if not parsed.is_finite() or parsed < 0 or abs(parsed.adjusted()) > 80:
                 raise http_error(422, "min_reward must be a bounded finite nonnegative decimal")
-        reap_expired_claims(db)
-        statement = select(Task).where(Task.visibility == "public")
+            minimum = float(parsed)
+
+        conditions = [Task.visibility == "public"]
         if status:
-            statement = statement.where(Task.status == status)
+            conditions.append(Task.status == status)
+        if kind:
+            conditions.append(Task.kind == kind)
+        if verification_strategy:
+            conditions.append(Task.verification_strategy == verification_strategy)
         if origin:
-            statement = statement.where(Task.origin == origin)
-        tasks = db.scalars(statement.order_by(Task.created_at.desc()).limit(500).execution_options(yield_per=1))
-        for task in tasks:
-            if task.visibility != "public":
-                continue
-            if status and task.status != status:
-                continue
-            if origin and task.origin != origin:
-                continue
-            if capability and capability not in required_capability_names(task):
-                continue
-            if chain and chain not in (task.chains or []):
-                continue
-            if minimum is not None:
-                reward = dec(((task.economics or {}).get("reward") or {}).get("amount", "0"))
-                if reward < minimum:
-                    continue
+            conditions.append(Task.origin == origin)
+        if capability:
+            # JSON-member match: the token includes the JSON string delimiters,
+            # so "security" cannot match a "proxy_security" entry.
+            conditions.append(
+                Task.required_capabilities.cast(String).contains(json.dumps(capability), autoescape=True)
+            )
+        if chain:
+            conditions.append(Task.chains.cast(String).contains(json.dumps(chain), autoescape=True))
+        if minimum is not None:
+            reward_amount = Task.economics["reward"]["amount"].as_string()
+            conditions.append(func.coalesce(func.cast(reward_amount, Float), 0.0) >= minimum)
+
+        paged = cursor is not None or offset is not None
+        if cursor is not None:
+            cursor_created, cursor_id = decode_task_cursor(cursor)
+            conditions.append(or_(
+                Task.created_at < cursor_created,
+                and_(Task.created_at == cursor_created, Task.id < cursor_id),
+            ))
+        sql_offset = 0 if cursor is not None else (offset or 0)
+
+        # The deterministic total order (created_at DESC, id DESC) makes both
+        # the keyset seek and offset pagination stable and repeatable.
+        statement = select(Task).where(*conditions).order_by(Task.created_at.desc(), Task.id.desc())
+        rows = db.scalars(
+            statement.limit(limit + 1 if paged else limit).offset(sql_offset)
+        ).all()
+
+        has_more = paged and len(rows) > limit
+        rows = rows[:limit]
+
+        tasks: list[dict[str, Any]] = []
+        response_bytes = 0
+        byte_truncated = False
+        for task in rows:
             item = task_view(db, task)
             size = len(canonical_json(item).encode())
             if response_bytes + size > MAX_LIST_BYTES:
+                # Preserve the no-skip guarantee: the cursor continues from the
+                # last rendered item instead of silently dropping tasks.
+                byte_truncated = True
                 break
-            result.append(item)
+            tasks.append(item)
             response_bytes += size
-            if len(result) >= limit:
-                break
-        return {"tasks": result}
+
+        if not paged:
+            return {"tasks": tasks}
+
+        total = int(db.scalar(select(func.count()).select_from(Task).where(*conditions)) or 0)
+        has_more = has_more or byte_truncated
+        next_cursor = None
+        if has_more and tasks:
+            last = tasks[-1]
+            raw_cursor = json.dumps(
+                {"created_at": last["created_at"], "id": last["id"]},
+                separators=(",", ":"),
+            ).encode()
+            next_cursor = base64.urlsafe_b64encode(raw_cursor).decode().rstrip("=")
+        return {
+            "tasks": tasks,
+            "total": total,
+            "limit": limit,
+            "offset": sql_offset,
+            "has_more": has_more,
+            "next_cursor": next_cursor,
+        }
 
     @app.get("/api/v1/tasks/{task_id}")
     async def get_task(task_id: str, request: Request, db: Session = Depends(get_db)):
@@ -1171,8 +1286,10 @@ def create_app() -> FastAPI:
     def validator_allowed(db: Session, validator_did: str, task: Task, submission: Submission) -> bool:
         if validator_did not in settings.trusted_validator_dids or validator_did in {task.poster_did, submission.executor_did}:
             return False
-        caps = capability_names(db, validator_did)
-        if not ({"validation", "validator"} & caps):
+        # Operator registry (Grok 1.1): allowlist + declared capability AND an
+        # effective validator registry role (explicit grant, or the development
+        # OPEN_OPERATORS self-registration fallback).
+        if not operator_registry.validator_authorized(db, validator_did):
             return False
         return not independence_failures(
             db,
@@ -1342,8 +1459,7 @@ def create_app() -> FastAPI:
         db: Session = Depends(get_db),
     ):
         did = await authenticate(request, db)
-        if did not in settings.trusted_validator_dids or not {"validation", "validator"}.intersection(capability_names(db, did)):
-            raise http_error(403, "validator is not approved or validation-capable")
+        require_validator_operator(db, did)
         replay = idempotency_replay(request)
         if replay is not None:
             return replay
@@ -1362,6 +1478,53 @@ def create_app() -> FastAPI:
             raise http_error(409, "task has already settled via deterministic strategy")
         if submission.status not in {"SUBMITTED", "DISPUTED"}:
             raise http_error(409, "submission is already terminal")
+        return apply_validation(
+            db,
+            task=task,
+            submission=submission,
+            validator_did=did,
+            body=body,
+            request=request,
+        )
+
+    @app.post("/api/v1/tasks/{task_id}/validations")
+    async def create_task_validation(
+        task_id: str,
+        body: ValidationCreate,
+        request: Request,
+        db: Session = Depends(get_db),
+    ):
+        """Submit a signed peer-validation decision for a task's pending proof.
+
+        Task-scoped peer validation: the server resolves the task's submission
+        that is awaiting validation (``SUBMITTED``, or ``DISPUTED`` so a
+        validation also closes the dispute). The operator authorization gate is
+        identical to the submission-scoped endpoint: operator allowlist entry,
+        declared validation capability, and an effective ``validator`` registry
+        role (explicit grant, or development ``OPEN_OPERATORS``
+        self-registration). Everything else — signature verification,
+        independence checks, deterministic cross-check, atomic settlement — is
+        the shared ``apply_validation`` path.
+        """
+        did = await authenticate(request, db)
+        require_validator_operator(db, did)
+        replay = idempotency_replay(request)
+        if replay is not None:
+            return replay
+        task = db.get(Task, task_id)
+        if not task:
+            raise http_error(404, "task not found")
+        submission = db.scalar(
+            select(Submission)
+            .where(
+                Submission.task_id == task.id,
+                Submission.status.in_(["SUBMITTED", "DISPUTED"]),
+            )
+            .order_by(Submission.created_at.desc(), Submission.id.desc())
+            .limit(1)
+        )
+        if not submission:
+            raise http_error(409, "task has no submission awaiting validation")
         return apply_validation(
             db,
             task=task,
@@ -1439,8 +1602,7 @@ def create_app() -> FastAPI:
         db: Session = Depends(get_db),
     ):
         did = await authenticate(request, db)
-        if did not in settings.trusted_validator_dids or not {"validation", "validator"}.intersection(capability_names(db, did)):
-            raise http_error(403, "validator is not approved or validation-capable")
+        require_validator_operator(db, did)
         replay = idempotency_replay(request)
         if replay is not None:
             return replay

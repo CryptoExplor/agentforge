@@ -44,6 +44,7 @@ This is the short map for a GitHub reviewer or coding agent.
 | `server/agentforge_server/db.py` | Database configuration, development schema setup, production guards |
 | `server/agentforge_server/settings.py` | Environment and feature settings |
 | `server/agentforge_server/admission.py` | SQL-atomic shared request quotas, enrollment/security configuration validation and safe nonce/challenge cleanup |
+| `server/agentforge_server/operators.py` | Operator registry and role grants: explicit, revocable validator authorization for peer validation |
 | `server/agentforge_server/middleware.py` | ASGI body/timeout/header/target/concurrency limits, admission and no-store responses |
 | `server/agentforge_server/validators/result_schema.py` | Bounded acceptance-schema subset with local acyclic references and no network/regex evaluation |
 | `tests/test_accounting_regressions.py` | Exact accounting, rollback and concurrent lifecycle tests on disposable SQLite/PostgreSQL |
