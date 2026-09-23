@@ -10,6 +10,7 @@
     "kind": {"enum": ["deterministic", "expert", "research", "service"]},
     "visibility": {"enum": ["public", "private"]},
     "origin": {"type": "string"},
+    "verification_strategy": {"enum": ["deterministic", "peer_review", "operator"]},
     "poster_did": {"type": "string"},
     "required_capabilities": {"type": "array", "items": {"type": "string"}},
     "chains": {"type": "array", "items": {"type": "string"}},

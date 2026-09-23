@@ -1,6 +1,6 @@
 # AgentForge project status
 
-**Canonical current-status summary — 2026-09-18 (Asia/Calcutta).**
+**Canonical current-status summary — 2026-09-23 (Asia/Calcutta).**
 
 AgentForge is a **pre-testnet, neutral agent-work marketplace**. It is not a
 public-ready service, an official FLOP client, a fleet controller or a real-value
@@ -25,6 +25,13 @@ Implemented in this review revision:
   advisory scanning. Existing SDK methods and signing formats are unchanged.
 - Current status, verification, technical policy and roadmap docs separated to
   remove repeated handoff prompts and contradictory historical test counts.
+- Phase 1.1 task verification strategies: `deterministic` tasks are verified by the
+  server when the proof is submitted and settle atomically in that transaction
+  (escrow release or refund, reputation event, claim completion, `TASK_VERIFIED` /
+  `TASK_REJECTED` outbox event). `peer_review` (default) and `operator` tasks keep
+  the approval-listed validator path, a late validator gets `409` on an already
+  auto-settled deterministic task, and Alembic head moves to `e7f8a9b0c1d2`. See
+  [task verification strategies](TASK_VERIFICATION_STRATEGIES.md).
 
 See [verification and audit findings](AUDIT_VERIFICATION.md) for exact test counts,
 commands, dependency evidence and limitations. Technical controls live in
@@ -35,23 +42,38 @@ commands, dependency evidence and limitations. Technical controls live in
 
 The maintainer authorized committing and pushing the completed patch to existing
 [PR #5](https://github.com/CryptoExplor/agentforge/pull/5) for local-agent review.
-This revision is based on its previous remote head
+That revision was based on its previous remote head
 `bd6bf59d6f3bdb8229cd9736ed58bcf680c37920`, retaining all four commits after the
-restored local baseline `3986dd1`. No existing shared history is rewritten.
+restored local baseline `3986dd1`.
+
+Phase 1.1 was first delivered into PR #6 on the `main@4aee541` baseline. The
+maintainer then authorized rebuilding it on the PR #5 line and force-pushing this
+session's own review branch, `arena/01a0cee1-agentforge`, to publish that result
+and to re-target PR #6 from `main` to `arena/01a0af63-agentforge`. No shared
+upstream branch is rewritten: `main` and the PR #5 line keep their commits, and
+the replaced PR #6 commits (`ed749c4`→`da58d92`, four commits on `main@4aee541`)
+stay available unchanged on the pre-pivot remote head and in the handoff patch.
 
 | Item | Review handoff |
 |---|---|
-| [PR #4](https://github.com/CryptoExplor/agentforge/pull/4) | Previously merged into `main` at `4aee54199e9c1376313c47d6562ccc03de491a02` |
-| PR #5 | Open; review branch `arena/01a0af8f-agentforge` |
-| PR #5 base | `arena/01a0af63-agentforge`, **not `main`**; not retargeted |
+| [PR #4](https://github.com/CryptoExplor/agentforge/pull/4) | Merged into `main` at `4aee54199e9c1376313c47d6562ccc03de491a02` |
+| [PR #5](https://github.com/CryptoExplor/agentforge/pull/5) | Merged at `82efa6f769010ddc7067324ab9942cd2b98f991d` into `arena/01a0af63-agentforge`, **not `main`** |
+| [PR #6](https://github.com/CryptoExplor/agentforge/pull/6) (Phase 1.1) | Head `arena/01a0cee1-agentforge`, base `arena/01a0af63-agentforge` at `82efa6f`; commits for strategy storage and migration, deterministic auto-settlement, tests, documentation and this re-target record; verification strategies, not yet independently reviewed |
 | Review revision | Fetch the current PR head and record its SHA; the PR handoff comment identifies the pushed commit |
+
+CI for this revision is green: the `test` job (full suite, contracts, wheel smoke
+check), `postgres-audit-regressions` (live `postgres:16-alpine`, where the selected
+suites apply `alembic upgrade head` and require the `e7f8a9b0c1d2` revision) and
+`dependency-audit`. Read the current runs from the PR checks for the published head;
+green CI is not independent review.
 
 The local agent's earlier 99-test result at `bd6bf59` does not cover these newer
 changes. Use the commands in [AUDIT_VERIFICATION.md](AUDIT_VERIFICATION.md).
 Local test evidence and earlier PostgreSQL/package/advisory results are labeled
 separately from live CI. Publishing for review is not independent approval,
 a merge or authorization to deploy. The human maintainer decides the eventual
-PR base and merge; agents must not merge, close, force-push or self-approve.
+PR base and merge; agents must not merge, close, force-push or self-approve
+without explicit maintainer authorization for their own review branch.
 
 ## Blocked and deferred
 

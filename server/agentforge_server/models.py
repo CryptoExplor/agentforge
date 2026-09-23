@@ -105,6 +105,11 @@ class Task(Base):
     deadline: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(String(40), default="OPEN", nullable=False)
     activity_eligibility: Mapped[str] = mapped_column(String(40), default="NOT_ELIGIBLE", nullable=False)
+    #: How the task outcome is decided. "deterministic" tasks are evaluated and
+    #: settled in the submitting transaction; "peer_review" and "operator" tasks
+    #: wait for an explicit signed validation decision. The default keeps every
+    #: existing task and client on peer review.
+    verification_strategy: Mapped[str] = mapped_column(String(32), default="peer_review", nullable=False)
     acceptance_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     task_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     claim_id: Mapped[str | None] = mapped_column(String(80), nullable=True)

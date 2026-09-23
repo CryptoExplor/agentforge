@@ -1494,6 +1494,16 @@
             "title": "Origin",
             "default": "agent_service"
           },
+          "verification_strategy": {
+            "type": "string",
+            "enum": [
+              "deterministic",
+              "peer_review",
+              "operator"
+            ],
+            "title": "Verification Strategy",
+            "default": "peer_review"
+          },
           "required_capabilities": {
             "items": {
               "type": "string"

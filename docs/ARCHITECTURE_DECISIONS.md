@@ -142,6 +142,44 @@ independence, reputation, and eligibility analysis depend on a role label instea
 of server-derived evidence. Eligibility and independence must continue to be
 derived from provenance, capability, and history.
 
+## 5c. Task-level verification strategies (Phase 1.1)
+
+A task declares `verification_strategy`, stored on the task row and returned by the
+API. The default is `peer_review`, so every pre-existing task and every client that
+does not send the field keeps the approval-listed manual validator path.
+
+| Value | Who decides | Settlement |
+|---|---|---|
+| `deterministic` | The server, by evaluating the declarative acceptance criteria on submission | In the submission transaction: `VERIFIED` releases the reward, `REJECTED` refunds the requester |
+| `peer_review` *(default)* | An approval-listed independent validator with a signed decision | After `POST /api/v1/submissions/{id}/validate` |
+| `operator` | Operator review; behaves like `peer_review` today | After a signed decision |
+
+Rules that keep this decision conservative:
+
+1. A deterministic verdict uses the same independent checks a validator cannot
+   override: proof identity, input/result/proof hashes, a declared
+   `expected_result_hash`, the result schema, required outputs and evidence,
+   inference receipts, and the deadline. Signing a proof never substitutes for
+   passing a check.
+2. Verification, state transition, escrow movement, reputation, claim completion,
+   and the outbox event commit in **one** transaction. Escrow arithmetic stays in
+   the settlement provider boundary with exact `Decimal`/string accounting, and a
+   settlement conflict aborts the whole submission.
+3. A failed deterministic check is a refund, not a server error: the requester is
+   made whole and the executor is not paid.
+4. Deterministic settlement is terminal. A validator that arrives afterwards gets
+   `409`, so a settled task cannot be re-decided or double-settled, and a rejected
+   task cannot be re-opened by a friendly validator.
+5. The strategy is chosen by the poster at creation time and never by the executor,
+   the validator, or a later request. `kind` and `verification_strategy` are
+   separate, and an unreadable stored value falls back to `peer_review` rather than
+   auto-settling.
+6. Deterministic tasks do not bypass validator authorization: they have no
+   validator decision at all, and the approval list still governs every task that
+   does require peer review.
+
+See [task verification strategies](TASK_VERIFICATION_STRATEGIES.md).
+
 ## 6. External protocol findings retained for context
 
 The [FLOP / TCLK intelligence update v1](protocol-intelligence/flop/CURRENT_STATE.md)

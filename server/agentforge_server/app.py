@@ -83,11 +83,14 @@ from .services import (
     reap_expired_claims,
     reputation_for,
     required_capability_names,
+    settle_escrow,
     task_outbox_payload,
     task_payload,
+    verification_strategy_of,
     verified_provenance_level,
 )
 from .settings import settings
+from .validators import evaluate_deterministic
 from .validators import validate_submission as deterministic_validate
 
 
@@ -612,6 +615,7 @@ def create_app() -> FastAPI:
             economics=economics,
             deadline=body.deadline,
             status="OPEN",
+            verification_strategy=body.verification_strategy,
             activity_eligibility=derive_activity_eligibility(
                 demand_provenance=provenance,
                 generation_policy=generation_policy,
@@ -929,6 +933,96 @@ def create_app() -> FastAPI:
             "receipt": session.receipt,
         }
 
+    def deterministic_auto_settlement(
+        db: Session,
+        *,
+        task: Task,
+        submission: Submission,
+        claim: Claim,
+        request: Request,
+    ) -> dict[str, Any]:
+        """Verify and settle a deterministic submission in the caller's transaction.
+
+        Nothing here commits. The deterministic checks, the submission/task/claim
+        transitions, the escrow transition, the reputation event, and the outbox
+        event are all applied to the same session, so they either become durable
+        together or not at all.
+
+        A failing check is a decision, not an error: the proof is rejected and the
+        requester is refunded. Escrow and ledger arithmetic stays inside the
+        settlement provider boundary with exact Decimal/string accounting, and a
+        settlement conflict aborts the whole submission instead of leaving a
+        half-applied state.
+        """
+        evaluation = evaluate_deterministic(db, task, submission)
+        decision = "REJECTED" if evaluation.fatal else "VERIFIED"
+        failed_checks = [item["code"] for item in evaluation.checks if item["result"] == "FAIL"]
+
+        submission.status = decision
+        task.status = decision
+        task.updated_at = now()
+
+        try:
+            settle_escrow(
+                db,
+                task=task,
+                executor_did=submission.executor_did,
+                decision=decision,
+            )
+        except ValueError as exc:
+            db.rollback()
+            raise http_error(409 if isinstance(exc, AccountingConflict) else 400, str(exc))
+
+        claim.status = "COMPLETED"
+        claim.updated_at = now()
+        add_reputation(
+            db,
+            did=submission.executor_did,
+            role="executor",
+            kind=f"task_{decision.lower()}",
+            delta=1.0 if decision == "VERIFIED" else -1.0,
+            capability=next(iter(required_capability_names(task)), None),
+            reference_type="submission",
+            reference_id=submission.id,
+        )
+        add_audit(
+            db,
+            actor_did=submission.executor_did,
+            kind=f"TASK_{decision}",
+            aggregate_type="task",
+            aggregate_id=task.id,
+            payload={
+                "task_id": task.id,
+                "submission_id": submission.id,
+                "verification_strategy": "deterministic",
+                "deterministic_checks": evaluation.checks,
+                "failed_checks": failed_checks,
+            },
+        )
+        queue_request_outbox(
+            request,
+            db,
+            kind=f"TASK_{decision}",
+            aggregate_id=task.id,
+            payload={
+                "task_id": task.id,
+                "submission_id": submission.id,
+                # Dual attribution: the settled exchange names both counterparties,
+                # while actor/causation attribute the request that caused it.
+                "poster_did": task.poster_did,
+                "executor_did": submission.executor_did,
+                "status": decision,
+                "decision": decision,
+                "verification_strategy": "deterministic",
+            },
+        )
+        return {
+            "strategy": "deterministic",
+            "decision": decision,
+            "deterministic_checks": evaluation.checks,
+            "failed_checks": failed_checks,
+        }
+
     @app.post("/api/v1/tasks/{task_id}/submissions")
     async def submit_task(
         task_id: str,
@@ -1012,7 +1106,22 @@ def create_app() -> FastAPI:
         task.updated_at = now()
         add_audit(db, actor_did=did, kind="TASK_SUBMITTED", aggregate_type="submission", aggregate_id=submission.id, payload={"task_id": task.id, "proof_hash": submission.proof_hash})
         queue_request_outbox(request, db, kind="PROOF_SUBMITTED", aggregate_id=submission.id, payload={"task_id": task.id, "submission_id": submission.id, "proof_hash": submission.proof_hash})
-        response_body = submission_view(submission)
+        if verification_strategy_of(task) == "deterministic":
+            # No validator is involved: the proof is evaluated and the task is
+            # settled inside this same transaction (one atomic commit below).
+            verification = deterministic_auto_settlement(
+                db,
+                task=task,
+                submission=submission,
+                claim=claim,
+                request=request,
+            )
+            # Render the view after settlement so the client sees the verdict.
+            response_body = submission_view(submission)
+            response_body["verification_strategy"] = "deterministic"
+            response_body["verification"] = verification
+        else:
+            response_body = submission_view(submission)
         finish_idempotency(request, response_body)
         db.commit()
         return response_body
@@ -1102,6 +1211,13 @@ def create_app() -> FastAPI:
     ) -> dict[str, Any]:
         if not validator_allowed(db, validator_did, task, submission):
             raise http_error(403, "validator is not approved, independent or validation-capable")
+        if verification_strategy_of(task) == "deterministic" and submission.status in {
+            "VERIFIED",
+            "REJECTED",
+        }:
+            # The task already settled when the proof was submitted; a late or
+            # competing validator cannot re-decide (or re-settle) it.
+            raise http_error(409, "task has already settled via deterministic strategy")
         if not guard_pending_submission(db, submission):
             raise http_error(409, "submission is not awaiting validation")
         if db.get(ValidationDecision, body.decision_id):
@@ -1234,11 +1350,18 @@ def create_app() -> FastAPI:
         submission = db.get(Submission, submission_id)
         if not submission:
             raise http_error(404, "submission not found")
-        if submission.status not in {"SUBMITTED", "DISPUTED"}:
-            raise http_error(409, "submission is already terminal")
         task = db.get(Task, submission.task_id)
         if not task:
             raise http_error(404, "task not found")
+        if verification_strategy_of(task) == "deterministic" and submission.status in {
+            "VERIFIED",
+            "REJECTED",
+        }:
+            # Deterministic tasks are decided by the server at submission time,
+            # so no independent validator decision is needed or accepted.
+            raise http_error(409, "task has already settled via deterministic strategy")
+        if submission.status not in {"SUBMITTED", "DISPUTED"}:
+            raise http_error(409, "submission is already terminal")
         return apply_validation(
             db,
             task=task,
