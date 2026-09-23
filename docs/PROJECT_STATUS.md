@@ -61,6 +61,12 @@ stay available unchanged on the pre-pivot remote head and in the handoff patch.
 | [PR #6](https://github.com/CryptoExplor/agentforge/pull/6) (Phase 1.1) | Head `arena/01a0cee1-agentforge`, base `arena/01a0af63-agentforge` at `82efa6f`; commits for strategy storage and migration, deterministic auto-settlement, tests, documentation and this re-target record; verification strategies, not yet independently reviewed |
 | Review revision | Fetch the current PR head and record its SHA; the PR handoff comment identifies the pushed commit |
 
+CI for this revision is green: the `test` job (full suite, contracts, wheel smoke
+check), `postgres-audit-regressions` (live `postgres:16-alpine`, where the selected
+suites apply `alembic upgrade head` and require the `e7f8a9b0c1d2` revision) and
+`dependency-audit`. Read the current runs from the PR checks for the published head;
+green CI is not independent review.
+
 The local agent's earlier 99-test result at `bd6bf59` does not cover these newer
 changes. Use the commands in [AUDIT_VERIFICATION.md](AUDIT_VERIFICATION.md).
 Local test evidence and earlier PostgreSQL/package/advisory results are labeled

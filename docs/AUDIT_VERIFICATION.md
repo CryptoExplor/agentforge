@@ -126,6 +126,7 @@ and the competing-validator guard. Python 3.11, disposable test data only.
 | Alembic `upgrade --sql` against `postgresql+psycopg` | `ALTER TABLE tasks ADD COLUMN verification_strategy VARCHAR(32) DEFAULT 'peer_review' NOT NULL;` (no SQLite-specific SQL) |
 | `worker --once` | one tick, clean exit |
 | `git diff --check` | Clean |
+| CI on this branch | `test`, `postgres-audit-regressions` and `dependency-audit` all **success** ([run `35885694231`](https://github.com/CryptoExplor/agentforge/actions/runs/35885694231) at head `0552b1f`; later documentation-only commits re-run the same jobs) |
 
 Covered cases: immediate `VERIFIED` with escrow `RELEASED` on a valid proof; immediate
 `REJECTED` with a full `REFUND` and no executor payout on a mismatched or
@@ -136,10 +137,15 @@ escrow conservation and single settlement; attached inference-session receipts;
 `REPUTATION` tasks without escrow; tampered proof signatures still refused with `401`;
 and the documented `TaskResponse` representation staying in step with the API.
 
-Limitations: no PostgreSQL server was available in this sandbox, so the new migration
-was verified by SQLite upgrade/downgrade and by PostgreSQL offline SQL generation
-only; the CI PostgreSQL job is the authoritative execution. This is
-implementation-side evidence, not independent review or merge approval.
+The CI PostgreSQL job is the authoritative migration execution: it runs against
+`postgres:16-alpine` with `AGENTFORGE_TEST_POSTGRES_URL` set, and the selected suites
+call `alembic upgrade head`, `verify_schema(require_migrations=True)` (which requires
+the alembic revision to equal `e7f8a9b0c1d2` exactly) and an additive-migration
+downgrade/upgrade preservation check, so that head was reached on real PostgreSQL.
+No PostgreSQL server was available in this sandbox, so locally the new migration was
+verified by SQLite upgrade/downgrade and by PostgreSQL offline SQL generation only,
+and the live PostgreSQL run above is result evidence from CI, not a local run.
+This is implementation-side evidence, not independent review or merge approval.
 
 ## Reproduction commands
 
@@ -192,7 +198,8 @@ The local test server was native PostgreSQL **16.2**, from test-only
 `pgserver==0.1.4`, not a project/runtime dependency. The known wheel SHA-256 is
 `d595789b47624a3d963aa9aa6359da9be31beb7e61f1a45541953242068b8813`.
 This old patch is **not recommended for production**. CI selects maintained
-`postgres:16-alpine`; that CI definition has not been run for this working tree.
+`postgres:16-alpine`; for the Phase 1.1 head that CI PostgreSQL job ran green (see the
+Phase 1.1 section), while the earlier revision's CI state is unchanged.
 
 The server used a private mode-0700 Unix socket, empty `listen_addresses` (no
 TCP), and disposable `agentforge_verification` database. Tests create/drop random
