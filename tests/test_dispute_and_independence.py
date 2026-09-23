@@ -37,6 +37,8 @@ def test_dispute_open_and_resolution_are_idempotent(tmp_path, monkeypatch):
         register(client, poster, {"name": "poster", "capabilities": [], "chains": ["base"]})
         register(client, executor, {"name": "executor", "capabilities": [], "chains": ["base"]})
         register(client, validator, {"name": "validator", "capabilities": ["validation"], "chains": ["base"]})
+        # Explicit operator grant; registration metadata itself conveys no authority.
+        settings.trusted_validator_dids = settings.trusted_validator_dids | {validator.did}
         task_response = signed_request(client, poster, "POST", "/api/v1/tasks", task_payload(economics={
             "mode": "BOUNTY",
             "reward": {"amount": "10", "asset": "MOCK"},
@@ -85,6 +87,8 @@ def test_server_side_group_independence_blocks_executor_and_validator(tmp_path, 
         register(client, same_operator_executor, {"name": "same", "capabilities": [], "operator_group": "op-a", "chains": ["base"]})
         register(client, independent_executor, {"name": "executor", "capabilities": [], "operator_group": "op-b", "chains": ["base"]})
         register(client, same_operator_validator, {"name": "validator", "capabilities": ["validation"], "operator_group": "op-a", "chains": ["base"]})
+        # Explicit operator grant; registration metadata itself conveys no authority.
+        settings.trusted_validator_dids = settings.trusted_validator_dids | {same_operator_validator.did}
         task_response = signed_request(client, poster, "POST", "/api/v1/tasks", task_payload())
         task = task_response.json()
         blocked = signed_request(client, same_operator_executor, "POST", f"/api/v1/tasks/{task['id']}/claim", {})

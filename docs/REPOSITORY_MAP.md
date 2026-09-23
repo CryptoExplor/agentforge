@@ -7,15 +7,27 @@ This is the short map for a GitHub reviewer or coding agent.
 | `README.md` | Quick start, current MVP boundary, audit-fix decisions |
 | `AGENTFORGE_ARCHITECTURE.md` | Long-form product and protocol architecture |
 | `ANTIGRAVITY_IMPLEMENTATION_BRIEF.md` | Frozen implementation brief and non-goals |
-| `docs/PROJECT_STATUS.md` | Current release snapshot and verification summary |
-| `docs/AUDIT_VERIFICATION.md` | Audit requirement traceability and commands |
+| `docs/SECURITY_REMEDIATION.md` | D1–D6 implementation, operator policy, limits, migration and audit handoff |
+| `docs/PROJECT_STATUS.md` | Canonical current state, GitHub snapshot and blockers; no duplicate test ledger |
+| `docs/DISCOVERY_SCALABILITY_PLAN.md` | 100k+ client design horizon, discovery projection/routing, private metadata policy, replay/backpressure, SDK/versioning and benchmark gates; not implemented |
+| `docs/SDK_ARCHITECTURE_PLAN.md` | Current design comparison, SDK resources/compatibility, integration boundaries, file-level execution plan and next-chat handoff; proposed, not implemented |
+| `docs/DEPLOYMENT_READINESS_2026-09-17.md` | Dated HTTP/runtime inventory, in-memory probe evidence and OPEN public-exposure findings D1–D6 |
+| `docs/AUDIT_VERIFICATION.md` | Canonical current audit scope, results, commands, dependency evidence and limitations |
+| `docs/ACCOUNTING_REMEDIATION.md` | Exact money, atomic ledger/escrow/lifecycle controls and compatibility |
+| `docs/ACTIVITY_ENGINE_P0_REVIEW.md` | Missing external-client source boundary and six-item plan review |
 | `docs/EVENT_OUTBOX.md` | Signed event outbox: attribution, envelope, configuration, worker, non-goals |
 | `docs/ARCHITECTURE_DECISIONS.md` | Frozen decisions and deferred provider strategy |
-| `docs/GITHUB_HANDOFF.md` | Upload steps, new-chat prompt, branch/commit guidance |
+| `docs/INTEGRATION_BOUNDARIES.md` | Independent marketplace, optional TCLK/Technocore/FLOP integrations, client policy and testnet evidence |
+| `docs/protocol-intelligence/flop/CURRENT_STATE.md` | FLOP/TCLK research: retain/defer/exclude decisions, evidence boundaries and pilot gates |
+| `docs/protocol-intelligence/flop/SOURCES.md` | Dated source ledger; draft, reported implementation and unverified claims kept separate |
+| `docs/protocol-intelligence/flop/PARAMETER_SNAPSHOT.json` | Documentation-only draft values with sources/units; runtime values remain null |
+| `docs/protocol-intelligence/flop/CHANGELOG.md` | Protocol-intelligence revision history |
+| `docs/GITHUB_HANDOFF.md` | Short review/publication workflow linked to canonical context |
 | `docs/PR_PLAN.md` | Small future PR sequence and review checklist |
 | `docs/REPOSITORY_MAP.md` | This file |
 | `server/agentforge_server/app.py` | FastAPI routes, signing/authentication, idempotency, authorization, expiry, submissions, validation, disputes |
 | `server/agentforge_server/services.py` | Reaper/deadlines, provenance/independence, ledger/escrow, reputation, audit, outbox helpers |
+| `server/agentforge_server/money.py` | Bounded exact decimal arithmetic independent of ambient context |
 | `server/agentforge_server/models.py` | SQLAlchemy tables, unique constraints, active-claim index |
 | `server/agentforge_server/schemas.py` | Pydantic request/response validation |
 | `server/agentforge_server/validators/deterministic.py` | Independent hash, acceptance, evidence, schema, receipt, and deadline checks |
@@ -30,15 +42,27 @@ This is the short map for a GitHub reviewer or coding agent.
 | `server/agentforge_server/worker.py` | Reaper + outbox worker entry point with graceful shutdown and `--once` |
 | `server/agentforge_server/db.py` | Database configuration, development schema setup, production guards |
 | `server/agentforge_server/settings.py` | Environment and feature settings |
+| `server/agentforge_server/admission.py` | SQL-atomic shared request quotas, enrollment/security configuration validation and safe nonce/challenge cleanup |
+| `server/agentforge_server/middleware.py` | ASGI body/timeout/header/target/concurrency limits, admission and no-store responses |
+| `server/agentforge_server/validators/result_schema.py` | Bounded acceptance-schema subset with local acyclic references and no network/regex evaluation |
+| `tests/test_accounting_regressions.py` | Exact accounting, rollback and concurrent lifecycle tests on disposable SQLite/PostgreSQL |
+| `tests/test_provider_resolution.py` | Cached/injected settlement configuration checks and inference fail-closed regression coverage |
+| `tests/test_runtime_hardening.py` | Cache budgets, SQL-backed private retrieval and configuration-secret redaction |
+| `tests/test_sdk_security.py` | Private atomic identity persistence and failure cleanup |
+| `tests/test_public_exposure.py` | D1–D6 regressions and optional PostgreSQL/migration coverage |
 | `sdk/python/agentforge_sdk/` | Python identity, signing, and API client |
 | `protocol/v1/*.schema.json` | Versioned machine-readable task, proof, agent, escrow, and validation contracts |
 | `protocol/v1/signing.md` | Canonical signing rules, including published event envelopes |
-| `protocol/v1/event-envelope.schema.json` | Signed event envelope contract (`agentforge-event/1`) |
+| `protocol/v1/event-envelope.schema.json` | Legacy event envelope contract (`agentforge-event/1`), unchanged |
+| `protocol/v1/event-envelope-v2.schema.json` | Current event envelope contract with complete request causation (`agentforge-event/2`) |
+| `protocol/v1/__init__.py` | Exposes canonical schemas as installed `agentforge_protocol` package resources |
 | `protocol/v1/openapi.json` | Generated FastAPI API contract |
 | `migrations/` | Alembic environment and initial schema revision |
 | `tests/test_mvp.py` | Original end-to-end mock exchange coverage |
 | `tests/test_audit_fixes.py` | P0/P1/P2 audit-fix integration coverage |
 | `tests/test_asset_guardrails.py` | Asset allow-list, server-derived provider/mode, and zero-reward escrow coverage |
+| `tests/test_outbox_regressions.py` | Six audit fixes: schema/signatures, atomic expiry, fresh retries, configuration and migrations; SQLite/PostgreSQL |
+| `scripts/check_contracts.py` | Schema/resource parity, OpenAPI and startup migration-head drift gate |
 | `tests/test_signed_event_outbox.py` | Envelope signing, attribution, causation, redaction, transport flags, retries, worker |
 | `tests/test_dispute_and_independence.py` | Dispute replay/settlement and server-derived independence coverage |
 | `conformance/README.md` | Future external conformance fixture boundary |

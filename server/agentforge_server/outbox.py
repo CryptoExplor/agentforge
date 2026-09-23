@@ -1,10 +1,9 @@
 """Retryable outbox helpers for coordination adapters.
 
-Delivery is at-least-once. Each attempt publishes the *same* signed canonical
-envelope for a given event, because the envelope is derived deterministically
-from the stored row and the current publisher key. Receivers must therefore
-deduplicate by ``event_id``; the envelope signature lets them prove that two
-copies of an event are the same published record rather than two transitions.
+Delivery is at-least-once. For an unchanged row and publisher configuration,
+attempts produce the same signed envelope. Key rotation changes the signature
+and key ID, not the event ID. Receivers must deduplicate by ``event_id`` (and
+check content consistency), not by signature bytes or delivery attempts.
 
 A disabled or unconfigured transport is a no-op: events stay ``PENDING`` with
 their attempt count untouched instead of being dead-lettered for a transport the
@@ -15,6 +14,7 @@ attempted, which keeps ``last_error`` and the retry budget meaningful.
 from __future__ import annotations
 
 import uuid
+import threading
 from typing import Any
 
 from sqlalchemy import and_, func, or_, select, update
@@ -45,10 +45,17 @@ def _truncate_error(error: str | None) -> str | None:
     return error[:MAX_ERROR_LENGTH]
 
 
-def drain_once(db: Session, adapter: TechnocoreAdapter, limit: int = 50) -> int:
+def drain_once(
+    db: Session, adapter: TechnocoreAdapter, limit: int = 50,
+    *, stop_event: threading.Event | None = None,
+) -> int:
     """Claim events atomically, then publish their signed envelopes."""
     if not getattr(adapter, "enabled", True):
         return 0
+
+    # Configuration errors are not event delivery failures. Validate before any
+    # lease/attempt write, including when the queue is empty.
+    publisher = get_event_publisher()
 
     candidates = db.scalars(
         select(OutboxEvent)
@@ -59,6 +66,8 @@ def drain_once(db: Session, adapter: TechnocoreAdapter, limit: int = 50) -> int:
     delivered = 0
 
     for candidate in candidates:
+        if stop_event is not None and stop_event.is_set():
+            break
         owner = uuid.uuid4().hex
         claimed = db.execute(
             update(OutboxEvent)
@@ -75,24 +84,24 @@ def drain_once(db: Session, adapter: TechnocoreAdapter, limit: int = 50) -> int:
         if claimed.rowcount != 1:
             continue
 
-        event = db.get(OutboxEvent, candidate.id)
-        if not event:
+        event = db.get(OutboxEvent, candidate.id, populate_existing=True)
+        if not event or event.lease_owner != owner:
             continue
 
         published = False
         error: str | None = None
         try:
-            envelope = build_envelope(event, publisher=get_event_publisher())
+            envelope = build_envelope(event, publisher=publisher)
             published = bool(adapter.publish_event(envelope))
             if not published:
                 error = "transport did not accept the envelope"
         except EnvelopeError as exc:
             error = f"envelope rejected: {exc}"
         except Exception as exc:  # noqa: BLE001 - failure is recorded, not raised
-            error = f"{type(exc).__name__}: {exc}"
+            error = f"delivery failed: {type(exc).__name__}"
 
         if published:
-            db.execute(
+            finalized = db.execute(
                 update(OutboxEvent)
                 .where(OutboxEvent.id == event.id, OutboxEvent.lease_owner == owner)
                 .values(
@@ -103,7 +112,7 @@ def drain_once(db: Session, adapter: TechnocoreAdapter, limit: int = 50) -> int:
                     last_error=None,
                 )
             )
-            delivered += 1
+            delivered += int(finalized.rowcount == 1)
         elif event.attempts >= OUTBOX_MAX_ATTEMPTS:
             db.execute(
                 update(OutboxEvent)

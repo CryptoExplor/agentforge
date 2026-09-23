@@ -5,9 +5,9 @@ Run the API and the worker as separate processes against the same database::
     python -m agentforge_server.worker          # continuous loop
     python -m agentforge_server.worker --once   # single tick, for cron or tests
 
-The loop stops cleanly on ``SIGINT``/``SIGTERM`` after the current tick, so a
-lease is never abandoned mid-publish and no event is delivered twice for one
-claim. Each tick reaps expired claims first and then drains the outbox, which
+On ``SIGINT``/``SIGTERM`` the current publish finishes, then no further events
+are claimed. A forced kill can still abandon a lease; delivery is at-least-once
+and receivers must deduplicate by event ID. Each tick reaps expired claims first and then drains the outbox, which
 keeps the active-claim invariant enforced independently of API traffic.
 """
 
@@ -25,8 +25,10 @@ from . import db as database
 from .adapters.technocore import TechnocoreAdapter
 from .db import init_db, verify_schema
 from .outbox import drain_once, outbox_metrics
+from .publisher import get_event_publisher
 from .services import reap_expired_claims
 from .settings import settings
+from .admission import prune_security_state
 
 LOGGER = logging.getLogger("agentforge.worker")
 
@@ -34,20 +36,27 @@ LOGGER = logging.getLogger("agentforge.worker")
 def prepare_database() -> None:
     """Mirror the API startup rule instead of creating an implicit schema."""
     if settings.environment == "production":
-        verify_schema()
+        if database.DATABASE_URL.startswith("sqlite"):
+            raise RuntimeError("SQLite schema is not allowed in production")
+        verify_schema(require_migrations=True)
     elif settings.auto_create_schema:
         init_db()
     else:
         verify_schema()
 
 
-def run_once(adapter: TechnocoreAdapter | None = None) -> dict[str, Any]:
+def run_once(
+    adapter: TechnocoreAdapter | None = None, *, stop_event: threading.Event | None = None,
+) -> dict[str, Any]:
     """Run one reap + drain tick and return counts for logging or assertions."""
     active_adapter = adapter or TechnocoreAdapter.from_settings()
+    if getattr(active_adapter, "enabled", True):
+        get_event_publisher()
     # Read the module attribute at call time: configure_database() rebinds it.
     with database.SessionLocal() as db:
+        prune_security_state(db)
         reaped = reap_expired_claims(db)
-        delivered = drain_once(db, active_adapter)
+        delivered = drain_once(db, active_adapter, stop_event=stop_event)
         metrics = outbox_metrics(db)
     return {"reaped_claims": reaped, "delivered": delivered, **metrics}
 
@@ -61,11 +70,13 @@ def run_worker(
     """Run the worker loop until stopped; return the number of completed ticks."""
     stop_event = stop_event or threading.Event()
     active_adapter = adapter or TechnocoreAdapter.from_settings()
+    if getattr(active_adapter, "enabled", True):
+        get_event_publisher()
     prepare_database()
     LOGGER.info("worker starting: %s", active_adapter.status())
     ticks = 0
     while not stop_event.is_set():
-        summary = run_once(active_adapter)
+        summary = run_once(active_adapter, stop_event=stop_event)
         ticks += 1
         if summary["delivered"] or summary["reaped_claims"] or summary["dead_count"]:
             LOGGER.info(
@@ -101,7 +112,7 @@ def main(argv: list[str] | None = None) -> None:
     stop_event = threading.Event()
 
     def handle_signal(signum: int, _frame: Any) -> None:
-        LOGGER.info("received signal %s; finishing the current tick", signum)
+        LOGGER.info("received signal %s; finishing the current delivery", signum)
         stop_event.set()
 
     for name in ("SIGINT", "SIGTERM"):

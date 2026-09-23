@@ -66,7 +66,9 @@ class TechnocoreAdapter:
         """Operational status. Contains no secrets and no event payloads."""
         return {
             "adapter": "technocore",
-            "base_url": self.base_url,
+            # URLs can contain credentials in userinfo, query, fragment or path.
+            # Worker startup logs this object: never echo the configured value.
+            "base_url": "<configured>" if self.base_url else "",
             "enabled": self.enabled,
             "configured": self.enabled,
             "gossip_enabled": self.gossip_enabled,

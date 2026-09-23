@@ -91,6 +91,8 @@ def load_event_publisher() -> EventPublisher:
     """Build the configured publisher, or fail closed in production."""
     secret = (settings.event_signing_key or "").strip()
     publisher_id = (settings.event_publisher_id or "").strip() or DEFAULT_PUBLISHER_ID
+    if len(publisher_id) > 160 or not publisher_id.isascii() or any(ord(c) < 32 or ord(c) == 127 for c in publisher_id):
+        raise RuntimeError("AGENTFORGE_EVENT_PUBLISHER_ID must be 1-160 printable ASCII characters")
     if secret:
         private_key = _private_key_from_seed(_seed_from_secret(secret))
         source = "environment"
