@@ -91,7 +91,7 @@ they were not rerun for this configuration-only follow-up.
 | Standalone ledger invariant probe | Both invariants pass; exit 0 |
 | Canonical schemas and packaged resources | **7 match** |
 | Generated/published OpenAPI | **22 paths match** |
-| Migration-head parity | **d6e7f8a9b0c1** |
+| Migration-head parity | **e7f8a9b0c1d2** (Phase 1.1); prior row: `d6e7f8a9b0c1` |
 | Compile and `pip check` | Passed |
 | Prior root and standalone SDK wheels | Built, installed in separate non-editable environments; smoke tests passed outside source import paths |
 | Prior resolved dependency advisory scan | **42 dependencies, 0 known vulnerabilities, 0 skips** after upgrade |
@@ -107,6 +107,39 @@ The PostgreSQL selection is 47 outbox + 87 exposure + 42 accounting/lifecycle +
 8 runtime-hardening cases. Some are pure unit tests; this does not mean every
 case issues database queries. Five SDK file-security tests and sixteen provider-resolution tests run in
 the default suite. Timing above is local test duration, **not capacity evidence**.
+
+## Phase 1.1 verification: task verification strategies
+
+Follow-up revision on `arena/01a0cee1-agentforge`, based on the PR #5 state
+(`82efa6f769010ddc7067324ab9942cd2b98f991d`). Scope: `verification_strategy` on
+tasks, deterministic verification and settlement in the submission transaction,
+and the competing-validator guard. Python 3.11, disposable test data only.
+
+| Check | Observed result |
+|---|---|
+| Full default suite | **267 passed, 3 skipped**, 1 dependency warning, 26.35s |
+| Pre-existing suite (before this change) | 254 passed, 3 skipped — unchanged, no test was modified to fit the feature |
+| `tests/test_deterministic_settlement.py` | **13 passed**, 3.88s |
+| Compile (`server sdk tests examples protocol`) | Passed |
+| `scripts/check_contracts.py` | `SCHEMAS_OK: 7` (packaged resources match), `OPENAPI_MATCH: 22 paths`, `MIGRATION_HEAD_MATCH: e7f8a9b0c1d2` |
+| Alembic SQLite `upgrade head → downgrade base → upgrade head` | `e7f8a9b0c1d2 (head)` |
+| Alembic `upgrade --sql` against `postgresql+psycopg` | `ALTER TABLE tasks ADD COLUMN verification_strategy VARCHAR(32) DEFAULT 'peer_review' NOT NULL;` (no SQLite-specific SQL) |
+| `worker --once` | one tick, clean exit |
+| `git diff --check` | Clean |
+
+Covered cases: immediate `VERIFIED` with escrow `RELEASED` on a valid proof; immediate
+`REJECTED` with a full `REFUND` and no executor payout on a mismatched or
+schema-invalid result; `peer_review`/`operator` still requiring the signed
+validation endpoint; `409 task has already settled via deterministic strategy` for a
+competing validator on a settled (verified or rejected) task with no re-settlement;
+escrow conservation and single settlement; attached inference-session receipts;
+`REPUTATION` tasks without escrow; tampered proof signatures still refused with `401`;
+and the documented `TaskResponse` representation staying in step with the API.
+
+Limitations: no PostgreSQL server was available in this sandbox, so the new migration
+was verified by SQLite upgrade/downgrade and by PostgreSQL offline SQL generation
+only; the CI PostgreSQL job is the authoritative execution. This is
+implementation-side evidence, not independent review or merge approval.
 
 ## Reproduction commands
 

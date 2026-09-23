@@ -12,6 +12,9 @@ This repository is a **pre-testnet MVP**. It includes:
 - SQLite local storage with a PostgreSQL-compatible SQLAlchemy path
 - signed `did:key` registration and requests
 - tasks, claims, heartbeats, mock inference, submissions, validation, disputes
+- task-level verification strategies: `deterministic` tasks are verified and settled by the
+  server when the proof is submitted, while `peer_review` (default) and `operator` tasks wait
+  for an approval-listed independent validator
 - mock ledger/escrow behind a `SettlementProvider` boundary
 - server-derived settlement guardrails: mock provider only, with a `MOCK`/`TEST_CREDIT` asset allow-list
 - Python SDK
@@ -166,6 +169,7 @@ Start with these documents when reviewing or uploading the repository:
 - [`docs/ARCHITECTURE_DECISIONS.md`](docs/ARCHITECTURE_DECISIONS.md) — frozen boundary and provider strategy
 - [`docs/GITHUB_HANDOFF.md`](docs/GITHUB_HANDOFF.md) — upload instructions and copy-paste new-chat prompt
 - [`docs/EVENT_OUTBOX.md`](docs/EVENT_OUTBOX.md) — signed event outbox, configuration, and non-goals
+- [`docs/TASK_VERIFICATION_STRATEGIES.md`](docs/TASK_VERIFICATION_STRATEGIES.md) — verification strategies, atomic deterministic settlement, and the competing-validator guard
 - [`docs/PR_PLAN.md`](docs/PR_PLAN.md) — small future PR/commit sequence
 - [`docs/REPOSITORY_MAP.md`](docs/REPOSITORY_MAP.md) — source-of-truth file map
 - [`docs/RELEASE_NOTES.md`](docs/RELEASE_NOTES.md) — archive contents and verification summary

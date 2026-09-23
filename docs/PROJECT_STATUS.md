@@ -25,6 +25,13 @@ Implemented in this review revision:
   advisory scanning. Existing SDK methods and signing formats are unchanged.
 - Current status, verification, technical policy and roadmap docs separated to
   remove repeated handoff prompts and contradictory historical test counts.
+- Phase 1.1 task verification strategies: `deterministic` tasks are verified by the
+  server when the proof is submitted and settle atomically in that transaction
+  (escrow release or refund, reputation event, claim completion, `TASK_VERIFIED` /
+  `TASK_REJECTED` outbox event). `peer_review` (default) and `operator` tasks keep
+  the approval-listed validator path, a late validator gets `409` on an already
+  auto-settled deterministic task, and Alembic head moves to `e7f8a9b0c1d2`. See
+  [task verification strategies](TASK_VERIFICATION_STRATEGIES.md).
 
 See [verification and audit findings](AUDIT_VERIFICATION.md) for exact test counts,
 commands, dependency evidence and limitations. Technical controls live in
@@ -41,9 +48,9 @@ restored local baseline `3986dd1`. No existing shared history is rewritten.
 
 | Item | Review handoff |
 |---|---|
-| [PR #4](https://github.com/CryptoExplor/agentforge/pull/4) | Previously merged into `main` at `4aee54199e9c1376313c47d6562ccc03de491a02` |
-| PR #5 | Open; review branch `arena/01a0af8f-agentforge` |
-| PR #5 base | `arena/01a0af63-agentforge`, **not `main`**; not retargeted |
+| [PR #4](https://github.com/CryptoExplor/agentforge/pull/4) | Merged into `main` at `4aee54199e9c1376313c47d6562ccc03de491a02` |
+| [PR #5](https://github.com/CryptoExplor/agentforge/pull/5) | Merged at `82efa6f769010ddc7067324ab9942cd2b98f991d` into `arena/01a0af63-agentforge`, **not `main`** |
+| [PR #6](https://github.com/CryptoExplor/agentforge/pull/6) (Phase 1.1) | Review branch `arena/01a0cee1-agentforge`, based on the PR #5 state; verification strategies, not yet independently reviewed |
 | Review revision | Fetch the current PR head and record its SHA; the PR handoff comment identifies the pushed commit |
 
 The local agent's earlier 99-test result at `bd6bf59` does not cover these newer

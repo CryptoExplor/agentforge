@@ -128,7 +128,10 @@ exponents are checked before allocating expanded representations.
 
 ## Migration, verification and remaining gates
 
-Alembic head is now **`d6e7f8a9b0c1`**, following `c4d5e6f7a8b9`.
+Alembic head is now **`e7f8a9b0c1d2`** (task verification strategy), following
+`d6e7f8a9b0c1` (request quotas), which follows `c4d5e6f7a8b9`. The Phase 1.1
+column is additive with `server_default='peer_review'`, so existing task rows are
+backfilled with the manual strategy and no marketplace/outbox row is rewritten.
 The additive `request_quotas` table/index and nonce/challenge cleanup indexes
 do not change marketplace/outbox rows. Apply migrations in a controlled step before starting the new API/worker.
 Old schema startup fails closed. Downgrade removes admission counters and these cleanup indexes;

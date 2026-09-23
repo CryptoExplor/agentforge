@@ -14,6 +14,7 @@ This is the short map for a GitHub reviewer or coding agent.
 | `docs/DEPLOYMENT_READINESS_2026-09-17.md` | Dated HTTP/runtime inventory, in-memory probe evidence and OPEN public-exposure findings D1–D6 |
 | `docs/AUDIT_VERIFICATION.md` | Canonical current audit scope, results, commands, dependency evidence and limitations |
 | `docs/ACCOUNTING_REMEDIATION.md` | Exact money, atomic ledger/escrow/lifecycle controls and compatibility |
+| `docs/TASK_VERIFICATION_STRATEGIES.md` | Verification strategies, atomic deterministic auto-settlement and the competing-validator guard |
 | `docs/ACTIVITY_ENGINE_P0_REVIEW.md` | Missing external-client source boundary and six-item plan review |
 | `docs/EVENT_OUTBOX.md` | Signed event outbox: attribution, envelope, configuration, worker, non-goals |
 | `docs/ARCHITECTURE_DECISIONS.md` | Frozen decisions and deferred provider strategy |
@@ -25,12 +26,12 @@ This is the short map for a GitHub reviewer or coding agent.
 | `docs/GITHUB_HANDOFF.md` | Short review/publication workflow linked to canonical context |
 | `docs/PR_PLAN.md` | Small future PR sequence and review checklist |
 | `docs/REPOSITORY_MAP.md` | This file |
-| `server/agentforge_server/app.py` | FastAPI routes, signing/authentication, idempotency, authorization, expiry, submissions, validation, disputes |
+| `server/agentforge_server/app.py` | FastAPI routes, signing/authentication, idempotency, authorization, expiry, submissions (including deterministic auto-settlement), validation, disputes |
 | `server/agentforge_server/services.py` | Reaper/deadlines, provenance/independence, ledger/escrow, reputation, audit, outbox helpers |
 | `server/agentforge_server/money.py` | Bounded exact decimal arithmetic independent of ambient context |
 | `server/agentforge_server/models.py` | SQLAlchemy tables, unique constraints, active-claim index |
 | `server/agentforge_server/schemas.py` | Pydantic request/response validation |
-| `server/agentforge_server/validators/deterministic.py` | Independent hash, acceptance, evidence, schema, receipt, and deadline checks |
+| `server/agentforge_server/validators/deterministic.py` | Independent hash, acceptance, expected-result-hash, evidence, schema, receipt, and deadline checks; `evaluate_deterministic` entry point for auto-settlement |
 | `server/agentforge_server/outbox.py` | Leased at-least-once delivery of signed envelopes, retries, dead-letter, metrics |
 | `server/agentforge_server/event_envelope.py` | Versioned canonical event envelope: actor, causation, payload hash, publisher signature |
 | `server/agentforge_server/publisher.py` | Server event publisher identity and key loading (publisher only, never an identity root) |
@@ -65,6 +66,7 @@ This is the short map for a GitHub reviewer or coding agent.
 | `scripts/check_contracts.py` | Schema/resource parity, OpenAPI and startup migration-head drift gate |
 | `tests/test_signed_event_outbox.py` | Envelope signing, attribution, causation, redaction, transport flags, retries, worker |
 | `tests/test_dispute_and_independence.py` | Dispute replay/settlement and server-derived independence coverage |
+| `tests/test_deterministic_settlement.py` | Task verification strategies: deterministic auto-settlement/rejection, `peer_review`/`operator` fallback, escrow conservation and the competing-validator `409` |
 | `conformance/README.md` | Future external conformance fixture boundary |
 | `Dockerfile` | Production-oriented image: explicit migration, no faucet |
 | `Dockerfile.dev` | Development image: explicit auto-schema/mock-faucet convenience |
