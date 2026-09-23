@@ -423,6 +423,7 @@ def task_payload(task: Task) -> dict[str, Any]:
         "deadline": task.deadline,
         "status": task.status,
         "activity_eligibility": task.activity_eligibility,
+        "verification_strategy": task.verification_strategy,
         "acceptance_hash": task.acceptance_hash,
         "task_hash": task.task_hash,
         "created_at": task.created_at,
@@ -626,6 +627,21 @@ def escrow_settle(
     return get_settlement_provider().settle(
         db, task=task, executor_did=executor_did, decision=decision, settlement=settlement
     )
+
+
+#: Alias for the settlement boundary. Deterministic auto-settlement and external
+#: reviewers referencing the task specification use the ``settle_escrow`` name;
+#: both names dispatch to the same provider and the same mock semantics.
+settle_escrow = escrow_settle
+
+
+def verification_strategy_of(task: Task) -> str:
+    """Return how a task outcome must be decided.
+
+    Unknown or missing values fall back to ``peer_review`` so a task can never
+    auto-settle because a stored strategy could not be read.
+    """
+    return (getattr(task, "verification_strategy", None) or "peer_review").strip().lower()
 
 
 def add_reputation(
