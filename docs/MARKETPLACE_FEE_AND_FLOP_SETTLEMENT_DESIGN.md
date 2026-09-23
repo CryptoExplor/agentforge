@@ -206,7 +206,51 @@ on AgentForge task economics, exactly as the architecture doc requires
 | **P4** | B2 settlement-rail adapter with verifiable receipts; optional TCLK coordination adapter | Official pinned interfaces; legal/ToS/custody review (architecture doc requires jurisdiction-specific advice before real-token settlement); maintainer authorization |
 | — | **Not authorized at any phase without new written approval**: wallets/key custody in-repo, staking/slaking participation, claiming airdrop eligibility publicly, enabling FLOP assets in the mock allow-list, treating testnet activity as mainnet value | Frozen rules apply |
 
-## 7. Risks and open items
+## 7. Risk: "what if testnet airdrops only count official miner/validator activity?"
+
+Scenario raised by the maintainer 2026-09-24: if final testnet rules count only
+fees flowing to official miners/GPU providers and validators, is the
+marketplace "of no use"?
+
+Analysis (all against the draft teaser §04, subject to change):
+
+- The published genesis allocation contains a **dedicated demand-side agent
+  cohort (1.2bn, spend-based)** plus an 800M reserve — 45% of genesis that the
+  feared scenario would leave unallocated. Unlikely, but possible for a draft.
+- Direction matters: miner/validator airdrops are earned by **receiving** fees;
+  the agent airdrop is earned by **spending** on inference. A marketplace sits
+  on the demand side and never competed for the supply-side pools.
+- The material risk is not *whether* agents count but **whose identity spends**:
+  - *Proxy mode* (marketplace wallet opens all sessions) concentrates spend on
+    one platform identity — users earn nothing, and a single mega-identity is a
+    visible wash/sybil target (Yellow Paper §12.3 market-actor threat class,
+    A5 demand-side Sybil).
+  - *BYO-identity mode* (each executor agent links its own FLOP identity; the
+    marketplace routes on its behalf) accrues agent-cohort credit per user.
+    AgentForge's per-agent signed-DID model and provider boundary already fit
+    this mode; the P3 adapter SHOULD default to it.
+- Self-looped fleet volume to farm spend-based airdrop is the exact pattern
+  sybil rules target (and this repository's own governance already states that
+  many keys do not establish independent operators). Only real external demand
+  is a durable claim.
+
+Scenario outcomes: if the agent cohort counts any on-chain spend, the thesis
+works (best under BYO-identity). If brokers are excluded from the separate
+broker cohort, only the platform-level pool upside is lost — user accrual and
+our fee leg are unaffected. If only miner/validator activity counted, the FLOP
+upside dies but the marketplace survives on its own economics: the platform fee
+is our price on task settlement, not a FLOP fee, and the work-exchange product
+(escrow, validation, disputes, reputation) stands alone. If only direct
+agent→miner sessions count, BYO-identity routing may still qualify (it is
+agent→miner, facilitated), and in the worst case the marketplace remains the
+coordination/escrow/reputation layer while compute routing goes around it.
+
+Consequence for sequencing, unchanged: P0–P2 (fee leg, views/SDK, pilot) are
+FLOP-independent and safe to build on approval; P3/P4 remain gated on the
+official published testnet rules and pinned interfaces, so a rules change costs
+nothing that was built. The marketplace must never be made dependent on
+airdrop economics.
+
 
 - **FLOP figures are drafts**: 85/15 is "provisional, not ratified"; the
   validator fee leg is unlanded (interim 99/1); testnet/mainnet dates are
