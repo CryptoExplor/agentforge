@@ -44,20 +44,8 @@ def _path_value(document: Any, path: str) -> tuple[bool, Any]:
 
 
 def _validate_result_schema(result: dict[str, Any], schema: Any) -> tuple[bool, str]:
-    if not isinstance(schema, dict):
-        return False, "result schema must be a JSON object"
-    try:
-        from jsonschema import Draft202012Validator
-
-        validator = Draft202012Validator(schema)
-        errors = sorted(validator.iter_errors(result), key=lambda error: list(error.path))
-    except Exception as exc:
-        return False, f"invalid result schema: {exc}"
-    if errors:
-        first = errors[0]
-        path = ".".join(str(part) for part in first.path) or "$"
-        return False, f"{path}: {first.message}"
-    return True, ""
+    from .result_schema import validate_result_schema
+    return validate_result_schema(result, schema)
 
 
 def _validate_acceptance(
@@ -88,14 +76,22 @@ def _validate_acceptance(
         )
         _check(checks, "EXPECTED_OUTPUTS_MATCH", passed, "declared expected output values do not match")
 
-    result_schema = (
-        acceptance.get("result_schema")
-        or acceptance.get("output_schema")
-        or acceptance.get("schema")
-    )
-    if result_schema is not None:
-        passed, detail = _validate_result_schema(result, result_schema)
-        _check(checks, "RESULT_SCHEMA_VALID", passed, detail)
+    expected_result_hash = acceptance.get("expected_result_hash", acceptance.get("result_hash"))
+    if expected_result_hash is not None:
+        # A poster can commit to the exact result bytes instead of repeating the
+        # whole expected object. The commitment is checked against the stored
+        # result hash, never against a value supplied by the executor.
+        _check(
+            checks,
+            "EXPECTED_RESULT_HASH_MATCH",
+            submission.result_hash == expected_result_hash,
+            "submitted result hash does not match the declared expected result hash",
+        )
+
+    for schema_key in ("result_schema", "output_schema", "schema"):
+        if schema_key in acceptance:
+            passed, detail = _validate_result_schema(result, acceptance[schema_key])
+            _check(checks, "RESULT_SCHEMA_VALID", passed, detail)
 
     required_evidence = acceptance.get("required_evidence", [])
     if not isinstance(required_evidence, list):
@@ -229,3 +225,14 @@ def validate_submission(db: Session, task: Task, submission: Submission) -> Dete
 
     fatal = any(item["result"] == "FAIL" for item in checks)
     return DeterministicValidation(checks=checks, fatal=fatal)
+
+
+def evaluate_deterministic(db: Session, task: Task, submission: Submission) -> DeterministicValidation:
+    """Evaluate the deterministic acceptance criteria for a stored submission.
+
+    This is the entry point used by deterministic auto-settlement: it returns the
+    full check list plus a ``fatal`` flag and performs no state changes. The
+    caller owns the transaction, so verification, state transition, escrow
+    movement, reputation, and the outbox event can commit atomically.
+    """
+    return validate_submission(db, task, submission)

@@ -23,7 +23,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ..models import Escrow, Task
@@ -31,8 +31,8 @@ from ..services import (
     ZERO,
     add_audit,
     dec,
-    ensure_account,
     money_string,
+    money_sum,
     now,
     post_ledger_event,
 )
@@ -94,7 +94,7 @@ class MockSettlementProvider:
             if amount > ZERO and str(item.get("asset", asset)).upper() != asset:
                 raise ValueError("all funded MVP escrow amounts must use the reward asset")
 
-        total = sum(amounts, ZERO)
+        total = money_sum(*amounts)
         if total == ZERO:
             task.status = "OPEN"
             return None
@@ -103,7 +103,7 @@ class MockSettlementProvider:
             db,
             did=task.poster_did,
             asset=asset,
-            delta=-total,
+            delta=total.copy_negate(),
             reason="TASK_FUND",
             idempotency_key=f"task:{task.id}:fund",
             task_id=task.id,
@@ -150,20 +150,20 @@ class MockSettlementProvider:
         if decision == "VERIFIED":
             transition = "FULL_RELEASE"
             executor_amount = reward
-            requester_refund = deposit + inference
-            escrow.status = "RELEASED"
+            requester_refund = money_sum(deposit, inference)
+            terminal_status = "RELEASED"
         elif decision == "REJECTED":
             transition = "REFUND"
             executor_amount = ZERO
-            requester_refund = reward + deposit + inference
-            escrow.status = "REFUNDED"
+            requester_refund = money_sum(reward, deposit, inference)
+            terminal_status = "REFUNDED"
         elif decision == "PARTIAL":
             transition = "PARTIAL_RELEASE"
             executor_amount = dec(settlement.get("executor_amount", "0"))
             if executor_amount > reward:
                 raise ValueError("partial executor amount exceeds reward")
-            requester_refund = reward - executor_amount + deposit + inference
-            escrow.status = "PARTIAL"
+            requester_refund = money_sum(reward, executor_amount.copy_negate(), deposit, inference)
+            terminal_status = "PARTIAL"
         elif decision == "SLASHED":
             transition = "SLASH"
             slash_subject = settlement.get("slash_subject", "requester")
@@ -174,36 +174,37 @@ class MockSettlementProvider:
             # the reward and requester deposit are refunded; executor collateral can
             # be added by a future adapter. A requester-subject slash burns the
             # deposit to the documented mock destination: no account is credited.
-            requester_refund = reward + inference
+            requester_refund = money_sum(reward, inference)
             if slash_subject == "executor":
-                requester_refund += deposit
+                requester_refund = money_sum(requester_refund, deposit)
             slashed = deposit if slash_subject == "requester" else ZERO
-            escrow.status = "SLASHED"
+            terminal_status = "SLASHED"
         else:
             raise ValueError("unsupported settlement decision")
 
-        if executor_amount + requester_refund + slashed != dec(escrow.reserved_total):
+        if money_sum(executor_amount, requester_refund, slashed) != dec(escrow.reserved_total):
             raise ValueError("escrow settlement does not conserve reserved value")
 
+        # Reserve the one terminal transition BEFORE posting any credit. A plain
+        # status read permits competing VERIFIED/REJECTED keys to pay twice.
+        # The winner holds this row lock through the caller's transaction.
+        won = db.execute(update(Escrow).where(
+            Escrow.task_id == task.id, Escrow.status.in_(["FUNDED", "FROZEN"]),
+        ).values(status=terminal_status).execution_options(synchronize_session=False))
+        if won.rowcount != 1:
+            raise ValueError("escrow is already terminal")
+        db.refresh(escrow)
+
+        credits = []
         if executor_amount:
-            post_ledger_event(
-                db,
-                did=executor_did,
-                asset=escrow.asset,
-                delta=executor_amount,
-                reason=transition,
-                idempotency_key=f"task:{task.id}:release:{decision}",
-                task_id=task.id,
-            )
+            credits.append((executor_did, executor_amount, f"task:{task.id}:release:{decision}"))
         if requester_refund:
+            credits.append((escrow.payer_did, requester_refund, f"task:{task.id}:refund:{decision}"))
+        # Cross-party settlements must acquire account locks in the same order.
+        for recipient, amount, key in sorted(credits, key=lambda item: (item[0], item[2])):
             post_ledger_event(
-                db,
-                did=escrow.payer_did,
-                asset=escrow.asset,
-                delta=requester_refund,
-                reason=transition,
-                idempotency_key=f"task:{task.id}:refund:{decision}",
-                task_id=task.id,
+                db, did=recipient, asset=escrow.asset, delta=amount,
+                reason=transition, idempotency_key=key, task_id=task.id,
             )
         if decision == "SLASHED":
             # The mock ledger burns a requester-subject slash by leaving it

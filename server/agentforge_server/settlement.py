@@ -51,20 +51,19 @@ def get_settlement_provider() -> SettlementProvider:
     """Return the active settlement provider (mock by default).
 
     Provider selection is server-derived from settings, not client requests.
-    MVP only supports 'mock'; any other value raises at call time to avoid
-    silent fallback to mock when a real provider is expected.
+    Only explicit 'mock' and its legacy 'local' alias are supported. Validate on
+    every resolution, BEFORE consulting the singleton or an injected override:
+    cached mock state must not hide invalid/unsupported current configuration.
+    Settings remain process configuration, not an atomic hot-reload interface.
     """
     global _provider
-    if _provider is None:
-        from .settings import settings
+    from .settings import settings
 
-        provider_name = getattr(settings, "settlement_provider", "mock").lower()
-        if provider_name not in {"mock", "local"}:
-            # In MVP we only have mock; future adapters will be gated behind
-            # explicit feature flags and official specs.
-            raise RuntimeError(
-                f"settlement provider '{provider_name}' is not enabled in MVP; use 'mock'"
-            )
+    configured = getattr(settings, "settlement_provider", None)
+    if not isinstance(configured, str) or configured.lower() not in {"mock", "local"}:
+        # Do not echo arbitrary configuration values into errors or logs.
+        raise RuntimeError("settlement provider is not enabled in MVP; use 'mock' or 'local'")
+    if _provider is None:
         from .adapters.mock_settlement import MockSettlementProvider
 
         _provider = MockSettlementProvider()
@@ -79,7 +78,11 @@ def get_deployment_mode() -> str:
 
 
 def set_settlement_provider(provider: SettlementProvider) -> None:
-    """Override the active provider (used only for testing or future adapters)."""
+    """Inject a trusted local provider for tests; configured-name checks still apply.
+
+    Enabling a future provider requires an explicit supported-name policy change,
+    not just seeding this cache. This is not an external client extension point.
+    """
     global _provider
     _provider = provider
 

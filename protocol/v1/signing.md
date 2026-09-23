@@ -56,30 +56,46 @@ opaque `next_cursor` returned by `/api/v1/events`; cursors are ordered by
 
 ## Published event envelope signature
 
-Outbox events that leave this instance are published as a canonical
-`agentforge-event/1` envelope (`event-envelope.schema.json`). The envelope
-carries two independent attributions:
+New attributed outbox records use `agentforge-event/2`
+(`event-envelope-v2.schema.json`). Historical records whose causal timestamp was
+not stored remain `agentforge-event/1` (`event-envelope.schema.json`). Both
+schemas are authoritative runtime resources; unknown/additional fields are
+rejected, including fields in `server` that are not covered by the signature.
+
+The publisher signs UTF-8 canonical JSON containing every field **except**
+`server.signature`, with `server` restricted to `publisher_id` and `key_id`.
+`key_id` is the first 16 hex characters of `SHA256(publisher_public_key)`.
+Verify this signature with an independently trusted publisher public key; a
+publisher ID or self-supplied key is not itself a trust anchor.
+
+V2 causation requires:
 
 ```text
-actor.did, causation.*        -> "this DID requested this operation"
-server.publisher_id/key_id    -> "this AgentForge instance emitted this record"
-server.signature               -> authenticates the recorded transition
+method, path, request_body_hash, request_timestamp, request_id, request_signature
 ```
 
-The publisher signs the UTF-8 bytes of canonical JSON containing every envelope
-field **except** `server.signature`, with `server` reduced to `publisher_id` and
-`key_id` so a signature cannot be replayed under a different publisher or key.
-`key_id` is the first 16 hex characters of `SHA256(publisher_public_key)` and
-changes on rotation.
+`request_timestamp` is the exact signed `X-Agent-Timestamp` header string,
+including its numeric representation. `request_id` is the original nonce.
+Reconstruct the actor signing bytes solely from the envelope:
 
-A valid envelope proves the publisher recorded the transition; it does **not**
-prove that the actor's request succeeded, and the actor signature alone cannot
-prove that either. `causation.request_signature` and
-`causation.request_body_hash` are the verified request attribution:
-`request_id` is the single-use request nonce, and the body hash uses the same
-`sha256:` notation as `payload_hash`.
+```text
+method + "\n" + path + "\n" + request_body_hash_without_sha256_prefix
+       + "\n" + request_timestamp + "\n" + request_id
+```
 
-`payload_hash` is `sha256:` plus the SHA-256 of canonical JSON of the stored
-event payload. The payload itself is never published; only allow-listed
-identifiers and commitment hashes appear in `attributes`. Retries republish
-byte-identical envelopes, so receivers deduplicate by `event_id`.
+Verify `request_signature` against `actor.did`. No raw request body or current
+clock is needed for this historical signature check. This proves the DID signed
+those request components, **not** that the request succeeded. The separate
+publisher signature authenticates the publisher's recorded transition, not an
+external settlement or an independent guarantee of state correctness.
+
+`verify_actor_causation()` and `verify_envelope()` implement these independent
+checks. For null or legacy v1 causation, actor verification returns false
+(unavailable), never a fabricated attribution. The v1 schema/signing format is
+unchanged, so old publisher signatures remain verifiable. V1-only receivers
+must upgrade before accepting new v2 events.
+
+`payload_hash` is `sha256:` plus SHA-256 of the canonical stored payload. The raw
+payload is not published; only selected scalar identifiers/commitments appear
+in `attributes`. Deduplicate by stable `event_id`. Unchanged rows and keys yield
+identical retries, but key rotation or a version upgrade may change bytes.

@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.orm import Session
 
 from .crypto import canonical_json, sha256_json
@@ -29,7 +29,7 @@ from .models import (
 )
 
 
-ZERO = Decimal("0")
+from .money import ZERO, dec, money_string, money_sum
 
 
 def now() -> float:
@@ -121,71 +121,100 @@ def mark_task_deadline_expired(db: Session, task: Task, claim: Claim | None = No
     db.commit()
 
 
+def guard_active_claim(db: Session, claim: Claim) -> bool:
+    """Serialize claim use with expiry, holding the write lock until commit.
+
+    A plain ORM read (or SELECT FOR UPDATE on SQLite) is not sufficient. Every
+    heartbeat/inference/submission path must win this conditional write before
+    changing the claim or its task. Refresh prevents stale identity-map state
+    from authorizing an already-expired or submitted claim.
+    """
+    won = db.execute(
+        update(Claim)
+        .where(Claim.id == claim.id, Claim.status == "ACTIVE", Claim.lease_expires_at > now())
+        .values(status=Claim.status)
+        .execution_options(synchronize_session=False)
+    ).rowcount == 1
+    db.refresh(claim)
+    # The conditional write may have waited on another transaction. Recheck
+    # wall time while holding the lock, before authorizing the caller's work.
+    return won and claim.status == "ACTIVE" and claim.lease_expires_at > now()
+
+
+def guard_pending_submission(db: Session, submission: Submission) -> bool:
+    """Serialize validation and dispute opening, including zero-value tasks."""
+    won = db.execute(update(Submission).where(
+        Submission.id == submission.id,
+        Submission.status.in_(["SUBMITTED", "DISPUTED"]),
+    ).values(status=Submission.status).execution_options(synchronize_session=False)).rowcount == 1
+    db.refresh(submission)
+    return won
+
+
 def reap_expired_claims(db: Session) -> int:
-    """Reopen claims whose lease expired; safe to call on every worker tick."""
+    """Expire each claim once; side effects belong to the CAS winner only.
+
+    Lock order is claim then task, shared with active-claim mutations. Candidate
+    reads are hints only: both claim and task predicates are rechecked by SQL.
+    All state changes, reputation, audit and outbox inserts commit together.
+    """
     expired = db.scalars(
-        select(Claim).where(
-            Claim.status == "ACTIVE",
-            Claim.lease_expires_at <= now(),
-        )
+        select(Claim).where(Claim.status == "ACTIVE", Claim.lease_expires_at <= now())
+        .order_by(Claim.id)
     ).all()
     count = 0
+    touched = False
     for claim in expired:
+        # This read can be stale; never mutate this object before winning SQL.
         task = db.get(Task, claim.task_id)
-        claim.status = "EXPIRED"
-        claim.updated_at = now()
-        if task and task.claim_id == claim.id and task.status in {"CLAIMED", "EXECUTING"}:
-            expired_at_deadline = task.deadline is not None and task.deadline <= now()
-            task.status = "EXPIRED" if expired_at_deadline else "OPEN"
-            task.claim_id = None
-            task.state_version += 1
-            task.updated_at = now()
-            add_reputation(
-                db,
-                did=claim.executor_did,
-                role="executor",
-                kind="claim_timeout",
-                delta=-0.1,
-                reference_type="claim",
-                reference_id=claim.id,
+        timestamp = now()
+        won = db.execute(
+            update(Claim)
+            .where(Claim.id == claim.id, Claim.status == "ACTIVE", Claim.lease_expires_at <= timestamp)
+            .values(status="EXPIRED", updated_at=timestamp)
+            .execution_options(synchronize_session=False)
+        ).rowcount == 1
+        db.refresh(claim)
+        if not won:
+            continue
+        touched = True
+        if task is None:
+            continue
+        transitioned = db.execute(
+            update(Task)
+            .where(Task.id == claim.task_id, Task.claim_id == claim.id,
+                   Task.status.in_(["CLAIMED", "EXECUTING"]))
+            .values(
+                status=case((Task.deadline <= timestamp, "EXPIRED"), else_="OPEN"),
+                claim_id=None, state_version=Task.state_version + 1, updated_at=timestamp,
             )
-            expiration_kind = "TASK_EXPIRED" if expired_at_deadline else "CLAIM_EXPIRED"
-            add_audit(
-                db,
-                actor_did=None,
-                kind=expiration_kind,
-                aggregate_type="task",
-                aggregate_id=task.id,
-                payload={
-                    "claim_id": claim.id,
-                    "executor_did": claim.executor_did,
-                    "reason": "deadline" if expired_at_deadline else "lease",
-                },
-            )
-            queue_outbox(
-                db,
-                kind=expiration_kind,
-                aggregate_id=task.id,
-                payload={"task_id": task.id, "claim_id": claim.id},
-            )
-            count += 1
-    if count:
+            .execution_options(synchronize_session=False)
+        ).rowcount == 1
+        db.refresh(task)
+        if not transitioned:
+            continue
+        expired_at_deadline = task.status == "EXPIRED"
+        add_reputation(
+            db, did=claim.executor_did, role="executor", kind="claim_timeout",
+            delta=-0.1, reference_type="claim", reference_id=claim.id,
+        )
+        expiration_kind = "TASK_EXPIRED" if expired_at_deadline else "CLAIM_EXPIRED"
+        add_audit(
+            db, actor_did=None, kind=expiration_kind, aggregate_type="task",
+            aggregate_id=task.id,
+            payload={"claim_id": claim.id, "executor_did": claim.executor_did,
+                     "reason": "deadline" if expired_at_deadline else "lease"},
+        )
+        queue_outbox(
+            db, kind=expiration_kind, aggregate_id=task.id,
+            payload={"task_id": task.id, "claim_id": claim.id},
+        )
+        count += 1
+    # Even a lost conditional write can hold locks. End the reaper transaction
+    # when candidates were inspected; its callers invoke it before domain work.
+    if touched or expired:
         db.commit()
     return count
-
-
-def dec(value: Any) -> Decimal:
-    try:
-        result = Decimal(str(value))
-    except (InvalidOperation, ValueError) as exc:
-        raise ValueError("invalid decimal value") from exc
-    if not result.is_finite() or result < ZERO:
-        raise ValueError("amount must be finite and non-negative")
-    return result
-
-
-def money_string(value: Decimal) -> str:
-    return format(value, "f")
 
 
 def capability_names(db: Session, did: str) -> set[str]:
@@ -394,6 +423,7 @@ def task_payload(task: Task) -> dict[str, Any]:
         "deadline": task.deadline,
         "status": task.status,
         "activity_eligibility": task.activity_eligibility,
+        "verification_strategy": task.verification_strategy,
         "acceptance_hash": task.acceptance_hash,
         "task_hash": task.task_hash,
         "created_at": task.created_at,
@@ -472,24 +502,40 @@ def queue_outbox(
     return event
 
 
+class AccountingConflict(ValueError):
+    """Retry the entire transaction, never just its remaining ledger writes."""
+
+
+def _ledger_insert(db: Session, model):
+    dialect = db.get_bind().dialect.name
+    if dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert
+    elif dialect == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert
+    else:
+        raise RuntimeError("mock accounting requires SQLite or PostgreSQL")
+    return insert(model)
+
+
 def ensure_account(
     db: Session,
     did: str,
     asset: str = "MOCK",
     initial_balance: str = "0",
 ) -> LedgerAccount:
-    account = db.scalar(
-        select(LedgerAccount).where(
-            LedgerAccount.did == did,
-            LedgerAccount.asset == asset,
-        )
-    )
+    account = db.scalar(select(LedgerAccount).where(
+        LedgerAccount.did == did, LedgerAccount.asset == asset,
+    ))
     if account:
         return account
-    account = LedgerAccount(did=did, asset=asset, balance=money_string(dec(initial_balance)))
-    db.add(account)
-    db.flush()
-    return account
+    # Concurrent creation must not reset an existing balance or abort the
+    # transaction. Only the unique (did, asset) conflict is ignored.
+    db.execute(_ledger_insert(db, LedgerAccount).values(
+        did=did, asset=asset, balance=money_string(dec(initial_balance)),
+    ).on_conflict_do_nothing(index_elements=["did", "asset"]))
+    return db.scalar(select(LedgerAccount).where(
+        LedgerAccount.did == did, LedgerAccount.asset == asset,
+    ).execution_options(populate_existing=True))
 
 
 def post_ledger_event(
@@ -502,31 +548,53 @@ def post_ledger_event(
     idempotency_key: str,
     task_id: str | None = None,
 ) -> LedgerEvent:
-    existing = db.scalar(
-        select(LedgerEvent).where(LedgerEvent.idempotency_key == idempotency_key)
-    )
+    """Post an exact, idempotent event and atomic balance change together.
+
+    No internal commit/savepoint: callers MUST roll back the whole transaction
+    on any failure. In particular, do not commit a reserved event after a failed
+    debit. SQL CAS works on both supported databases without numeric casts or
+    trusting the ORM identity map. Contention is bounded and fails closed.
+    """
+    delta_text = money_string(delta)
+
+    def checked_replay(event):
+        if (event.did != did or event.asset != asset or
+                Decimal(event.amount_delta) != delta or event.reason != reason or
+                event.task_id != task_id):
+            raise ValueError("ledger idempotency key was reused with different content")
+        return event
+
+    existing = db.scalar(select(LedgerEvent).where(
+        LedgerEvent.idempotency_key == idempotency_key,
+    ))
     if existing:
-        return existing
+        return checked_replay(existing)
 
     account = ensure_account(db, did, asset)
-    current = dec(account.balance)
-    new_balance = current + delta
-    if new_balance < ZERO:
-        raise ValueError("insufficient mock balance")
+    event_id = new_id("LED")
+    inserted = db.scalar(_ledger_insert(db, LedgerEvent).values(
+        id=event_id, idempotency_key=idempotency_key, did=did, asset=asset,
+        amount_delta=delta_text, reason=reason, task_id=task_id, created_at=now(),
+    ).on_conflict_do_nothing(index_elements=["idempotency_key"]).returning(LedgerEvent.id))
+    if inserted is None:
+        # A competing transaction won this key. It has committed before the
+        # conflict insert returns; compare all immutable accounting content.
+        return checked_replay(db.scalar(select(LedgerEvent).where(
+            LedgerEvent.idempotency_key == idempotency_key,
+        ).execution_options(populate_existing=True)))
 
-    account.balance = money_string(new_balance)
-    event = LedgerEvent(
-        id=new_id("LED"),
-        idempotency_key=idempotency_key,
-        did=did,
-        asset=asset,
-        amount_delta=money_string(delta),
-        reason=reason,
-        task_id=task_id,
-        created_at=now(),
-    )
-    db.add(event)
-    return event
+    for _ in range(8):
+        current_text = db.scalar(select(LedgerAccount.balance).where(LedgerAccount.id == account.id))
+        new_balance = money_sum(dec(current_text), delta)
+        if new_balance < ZERO:
+            raise ValueError("insufficient mock balance")
+        won = db.execute(update(LedgerAccount).where(
+            LedgerAccount.id == account.id, LedgerAccount.balance == current_text,
+        ).values(balance=money_string(new_balance)).execution_options(synchronize_session=False))
+        if won.rowcount == 1:
+            db.refresh(account)
+            return db.get(LedgerEvent, event_id)
+    raise AccountingConflict("concurrent mock balance update; retry transaction")
 
 
 def fund_task(db: Session, task: Task) -> Escrow | None:
@@ -559,6 +627,21 @@ def escrow_settle(
     return get_settlement_provider().settle(
         db, task=task, executor_did=executor_did, decision=decision, settlement=settlement
     )
+
+
+#: Alias for the settlement boundary. Deterministic auto-settlement and external
+#: reviewers referencing the task specification use the ``settle_escrow`` name;
+#: both names dispatch to the same provider and the same mock semantics.
+settle_escrow = escrow_settle
+
+
+def verification_strategy_of(task: Task) -> str:
+    """Return how a task outcome must be decided.
+
+    Unknown or missing values fall back to ``peer_review`` so a task can never
+    auto-settle because a stored strategy could not be read.
+    """
+    return (getattr(task, "verification_strategy", None) or "peer_review").strip().lower()
 
 
 def add_reputation(

@@ -220,6 +220,8 @@ def setup_three_agents(client, *, private=False):
     register(client, poster, {"name": "poster", "capabilities": ["research"], "chains": ["base"]})
     register(client, executor, {"name": "executor", "capabilities": ["research"], "chains": ["base"]})
     register(client, validator, {"name": "validator", "capabilities": ["validation"], "chains": ["base"]})
+    # Explicit operator grant; registration metadata itself conveys no authority.
+    settings.trusted_validator_dids = settings.trusted_validator_dids | {validator.did}
     task = create_task(client, poster, task_payload(visibility="private" if private else "public"))
     return poster, executor, validator, task
 

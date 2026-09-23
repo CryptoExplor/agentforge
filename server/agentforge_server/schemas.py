@@ -52,7 +52,14 @@ class Money(StrictModel):
             raise ValueError("amount must be a decimal string") from exc
         if not number.is_finite() or number < 0:
             raise ValueError("amount must be finite and non-negative")
-        return format(number, "f")
+        # Bound exponent before formatting; a short '1e999999999' must not
+        # expand into an enormous string during request parsing.
+        if abs(number.as_tuple().exponent) > 80 or abs(number.adjusted()) > 80:
+            raise ValueError("decimal exponent is out of bounds")
+        normalized = format(number, "f")
+        if len(normalized) > 80:
+            raise ValueError("normalized decimal is too long")
+        return normalized
 
 
 class TaskEconomics(StrictModel):
@@ -99,6 +106,16 @@ class TaskCreate(StrictModel):
     kind: Literal["deterministic", "expert", "research", "service"] = "research"
     visibility: Literal["public", "private"] = "public"
     origin: Literal["external", "ecosystem", "agent_service", "research", "validation", "maintenance"] = "agent_service"
+    #: Who is allowed to decide the task outcome.
+    #:
+    #: - ``deterministic``: the server evaluates the declarative acceptance
+    #:   criteria (hashes, schemas, evidence) inside the submission transaction
+    #:   and settles immediately. No validator is required or accepted.
+    #: - ``peer_review``: an approval-listed independent validator must submit a
+    #:   signed validation decision (the original MVP behavior, and the default).
+    #: - ``operator``: reserved for operator-driven review; treated like
+    #:   ``peer_review`` today.
+    verification_strategy: Literal["deterministic", "peer_review", "operator"] = "peer_review"
     required_capabilities: list[str] = Field(default_factory=list, max_length=20)
     chains: list[str] = Field(default_factory=list, max_length=20)
     input_data: dict[str, Any] = Field(default_factory=dict, alias="input")
@@ -108,6 +125,56 @@ class TaskCreate(StrictModel):
     economics: TaskEconomics = Field(default_factory=TaskEconomics)
     parent_task_id: str | None = Field(default=None, max_length=80)
     deadline: float | None = Field(default=None, gt=0)
+
+
+class EscrowView(StrictModel):
+    """Escrow state attached to a task representation."""
+
+    task_id: str
+    status: str
+    transition: str | None = None
+    asset: str
+    reward_amount: str = "0"
+    deposit_amount: str = "0"
+    inference_budget: str = "0"
+    reserved_total: str = "0"
+    released_amount: str = "0"
+    refunded_amount: str = "0"
+    slashed_amount: str = "0"
+
+
+class TaskResponse(StrictModel):
+    """Documentation model for the task representation returned by the API.
+
+    The HTTP layer returns plain dictionaries (``task_view``); this schema
+    mirrors that representation, including ``verification_strategy``, so the
+    protocol contract and any client can see the exact field set.
+    """
+
+    id: str
+    version: int = 1
+    kind: str
+    visibility: str
+    origin: str
+    poster_did: str
+    required_capabilities: list[str] = Field(default_factory=list)
+    chains: list[str] = Field(default_factory=list)
+    input: dict[str, Any] = Field(default_factory=dict, alias="input")
+    acceptance: dict[str, Any] = Field(default_factory=dict)
+    demand_provenance: dict[str, Any] = Field(default_factory=dict)
+    generation_policy: dict[str, Any] = Field(default_factory=dict)
+    anti_circularity: dict[str, Any] = Field(default_factory=dict)
+    economics: dict[str, Any] = Field(default_factory=dict)
+    deadline: float | None = None
+    status: str
+    activity_eligibility: str = "NOT_ELIGIBLE"
+    acceptance_hash: str
+    task_hash: str
+    #: Server-recorded verification strategy for this task.
+    verification_strategy: str = "peer_review"
+    escrow: EscrowView | None = None
+    created_at: float
+    updated_at: float
 
 
 class InferenceRequestCreate(StrictModel):
@@ -129,7 +196,14 @@ class InferenceRequestCreate(StrictModel):
             raise ValueError("requested_compute must be a decimal string") from exc
         if not number.is_finite() or number < 0:
             raise ValueError("requested_compute must be finite and non-negative")
-        return format(number, "f")
+        # Bound exponent before formatting; a short '1e999999999' must not
+        # expand into an enormous string during request parsing.
+        if abs(number.as_tuple().exponent) > 80 or abs(number.adjusted()) > 80:
+            raise ValueError("decimal exponent is out of bounds")
+        normalized = format(number, "f")
+        if len(normalized) > 80:
+            raise ValueError("normalized decimal is too long")
+        return normalized
 
 
 class SubmissionCreate(StrictModel):

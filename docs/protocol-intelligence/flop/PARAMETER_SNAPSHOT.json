@@ -1,0 +1,79 @@
+{
+  "snapshot_version": 1,
+  "reviewed_on": "2026-09-17",
+  "timezone": "Asia/Calcutta",
+  "purpose": "Documentation-only draft observations. Not application configuration.",
+  "runtime_use_allowed": false,
+  "network_verified": false,
+  "network_id": null,
+  "runtime_version": null,
+  "finalized_block": null,
+  "yellowpaper_displayed_version": "0.5.0 (draft)",
+  "yellowpaper_displayed_updated_on": "2026-09-05",
+  "source_immutability": "FLOP pages are mutable; no archived content hash is claimed.",
+  "parameters": [
+    {
+      "name": "agent_identity_min_stake",
+      "observed_value": "10",
+      "unit": "FLOP (display denomination, not base units)",
+      "classification": "DRAFT_SPEC",
+      "source_verification": "SOURCE_VERIFIED",
+      "source": "https://flop.finance/intro/yellowpaper/#param-agent_identity_min_stake",
+      "source_location": "Appendix A: Agent wallet / session keys",
+      "runtime_value": null
+    },
+    {
+      "name": "circuit_breaker_tx_count",
+      "observed_value": "100",
+      "unit": "transactions per window",
+      "classification": "DRAFT_SPEC",
+      "source_verification": "SOURCE_VERIFIED",
+      "source": "https://flop.finance/intro/yellowpaper/#param-circuit_breaker_tx_count",
+      "source_location": "Appendix A: Agent wallet / session keys",
+      "runtime_value": null
+    },
+    {
+      "name": "circuit_breaker_flop_cap",
+      "observed_value": "250",
+      "unit": "FLOP per window (display denomination, not base units)",
+      "classification": "DRAFT_SPEC",
+      "source_verification": "SOURCE_VERIFIED",
+      "source": "https://flop.finance/intro/yellowpaper/#param-circuit_breaker_flop_cap",
+      "source_location": "Appendix A: Agent wallet / session keys",
+      "runtime_value": null
+    },
+    {
+      "name": "circuit_breaker_window",
+      "observed_value": "60",
+      "unit": "blocks",
+      "classification": "DRAFT_SPEC",
+      "source_verification": "SOURCE_VERIFIED",
+      "source": "https://flop.finance/intro/yellowpaper/#param-circuit_breaker_window",
+      "source_location": "Appendix A: Reference-only group",
+      "note": "Reference-only is not a cross-language enforcement guarantee. Do not convert to a fixed wall-clock guarantee.",
+      "runtime_value": null
+    },
+    {
+      "name": "miner_base_self_stake",
+      "observed_value": "10000",
+      "unit": "FLOP (display denomination, not base units)",
+      "classification": "DRAFT_SPEC",
+      "source_verification": "SOURCE_VERIFIED",
+      "source": "https://flop.finance/intro/miner/",
+      "source_location": "Base self-stake; Stake, delegation, and slashing",
+      "note": "Base only; capacity-proportional exposure is additional. Internal snapshot label, not an asserted RPC field name.",
+      "runtime_value": null
+    },
+    {
+      "name": "miner_capacity_bond_rate",
+      "observed_value": null,
+      "unit": null,
+      "classification": "UNRESOLVED",
+      "source_verification": "SOURCE_VERIFIED",
+      "source": "https://flop.finance/intro/miner/",
+      "source_location": "Stake, delegation, and slashing",
+      "note": "Source says rate is under economic reconciliation; no usable coefficient inferred.",
+      "runtime_value": null
+    }
+  ]
+}

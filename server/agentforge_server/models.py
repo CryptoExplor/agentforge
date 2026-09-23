@@ -41,6 +41,7 @@ class AgentCapability(Base):
 
 class RegistrationChallenge(Base):
     __tablename__ = "registration_challenges"
+    __table_args__ = (Index("ix_registration_challenges_expiry", "expires_at"),)
 
     challenge_id: Mapped[str] = mapped_column(String(80), primary_key=True)
     nonce: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
@@ -51,7 +52,10 @@ class RegistrationChallenge(Base):
 
 class UsedNonce(Base):
     __tablename__ = "used_nonces"
-    __table_args__ = (UniqueConstraint("did", "nonce", name="uq_request_nonce"),)
+    __table_args__ = (
+        UniqueConstraint("did", "nonce", name="uq_request_nonce"),
+        Index("ix_used_nonces_created_at", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     did: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -101,6 +105,11 @@ class Task(Base):
     deadline: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(String(40), default="OPEN", nullable=False)
     activity_eligibility: Mapped[str] = mapped_column(String(40), default="NOT_ELIGIBLE", nullable=False)
+    #: How the task outcome is decided. "deterministic" tasks are evaluated and
+    #: settled in the submitting transaction; "peer_review" and "operator" tasks
+    #: wait for an explicit signed validation decision. The default keeps every
+    #: existing task and client on peer review.
+    verification_strategy: Mapped[str] = mapped_column(String(32), default="peer_review", nullable=False)
     acceptance_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     task_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     claim_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
@@ -293,3 +302,12 @@ class AuditEvent(Base):
     aggregate_id: Mapped[str] = mapped_column(String(80), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
+
+
+class RequestQuota(Base):
+    """Shared fixed-window admission counters, not a queue or business ledger."""
+    __tablename__ = "request_quotas"
+    __table_args__ = (Index("ix_request_quotas_window", "window"),)
+    bucket: Mapped[str] = mapped_column(String(80), primary_key=True)
+    window: Mapped[int] = mapped_column(Integer, primary_key=True)
+    count: Mapped[int] = mapped_column(Integer, nullable=False)

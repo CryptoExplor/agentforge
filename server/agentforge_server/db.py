@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from .models import Base
@@ -35,19 +35,43 @@ def init_db() -> None:
     environment = os.getenv("AGENTFORGE_ENV", "development").lower()
     if environment == "production":
         raise RuntimeError("production startup refuses auto-created schema; run 'alembic upgrade head'")
-    Base.metadata.create_all(bind=engine)
+    # create_all cannot migrate an existing deployment. Refuse partial/stale
+    # schemas rather than silently starting with missing columns.
+    if set(inspect(engine).get_table_names()) & set(Base.metadata.tables):
+        verify_schema()
+    else:
+        Base.metadata.create_all(bind=engine)
+        verify_schema()
 
 
-def verify_schema() -> None:
-    """Fail closed when a migration has not provisioned the configured database."""
-    required = set(Base.metadata.tables)
-    present = set(inspect(engine).get_table_names())
-    missing = sorted(required - present)
+SCHEMA_REVISION = "e7f8a9b0c1d2"
+
+
+def verify_schema(*, require_migrations: bool = False) -> None:
+    """Check required tables/columns; production also requires the migration head.
+
+    Development create_all databases may be unversioned, but they must still
+    have every column used by the current models. This is a readiness check,
+    not a replacement for migrations or a complete type/index drift audit.
+    """
+    inspector = inspect(engine)
+    present = set(inspector.get_table_names())
+    missing = sorted(set(Base.metadata.tables) - present)
+    for name, table in Base.metadata.tables.items():
+        if name in present:
+            columns = {column["name"] for column in inspector.get_columns(name)}
+            missing.extend(f"{name}.{column.name}" for column in table.columns if column.name not in columns)
     if missing:
         raise RuntimeError(
             "database schema is not ready; run 'alembic upgrade head' "
             f"(missing: {', '.join(missing)})"
         )
+    if require_migrations:
+        with engine.connect() as connection:
+            revisions = (set(connection.scalars(text("SELECT version_num FROM alembic_version")))
+                         if "alembic_version" in present else set())
+        if revisions != {SCHEMA_REVISION}:
+            raise RuntimeError("database migration revision is not ready; run 'alembic upgrade head'")
 
 
 def get_db() -> Generator[Session, None, None]:

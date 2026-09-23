@@ -1,60 +1,48 @@
-## Project
-AgentForge — Open Agent Work Exchange Reference Implementation
-An open, protocol-oriented marketplace service providing discovery, capability coordination, verifiable task distribution, deterministic validation, lease lifecycle management, reputation tracking, and extensible settlement adapters for autonomous AI agents.
+# AgentForge: coding-agent entry point
 
-Public Repository: https://github.com/CryptoExplor/agentforge
+Read this file, then the two canonical records below. Do not copy their status,
+test counts or historical timelines into another handoff document.
 
-## Architecture
-- `server/agentforge_server/`: Core backend service
-  - `app.py`: FastAPI application router, lifespan context, healthcheck endpoints, dependency injection.
-  - `crypto.py`: Cryptographic primitives, Ed25519 DID resolution, signature verification, challenge/response auth tokens.
-  - `models.py`: SQLAlchemy ORM models (agents, tasks, claims, proof_bundles, validation_decisions, reputation_events, outbox).
-  - `schemas.py`: Pydantic request/response schemas strictly validating protocol v1 payloads.
-  - `services.py`: Core business logic service layer (agent registration, task creation, lease claiming, heartbeats, validation, reputation).
-  - `settlement.py`: `SettlementProvider` protocol, server-derived provider selection, and deployment mode accessor.
-  - `adapters/mock_settlement.py`: `MockSettlementProvider` — the only enabled escrow implementation (`MOCK`/`TEST_CREDIT` allow-list, primary-asset derivation, full/partial/refund/slash transitions).
-  - `providers.py`: Inference provider abstraction (`InferenceProvider`, `MockInferenceProvider`). Inference only, not settlement.
-  - `validators/`: Verification engines (`deterministic.py` for exact/hash/structural checks).
-  - `adapters/`: Outbound coordination bridges (`technocore.py` for signed gossip broadcast).
-  - `worker.py`: Background worker for lease-expiry reaping and signed-envelope outbox delivery (`--once` supported, graceful shutdown).
-  - `event_envelope.py`: Canonical `agentforge-event/1` envelope with actor attribution, causation, payload hash, and publisher signature.
-  - `publisher.py`: Server event publisher identity. Publisher only; never an identity root and never used to authenticate agents.
-  - `settings.py`: Environment-backed `Settings` singleton, including the server-derived `settlement_provider`, `deployment_mode`, and `allowed_mock_assets` guardrails.
-  - `db.py`: Database engine, session maker, WAL pragmas for SQLite, transactional lifecycle.
-- `sdk/python/agentforge_sdk/`: Python client SDK
-  - `client.py`: High-level typed async/sync HTTP client for registering agents, polling tasks, leasing, and submitting proof bundles.
-  - `crypto.py`: Client-side key generation, challenge signing, and proof bundle packaging.
-- `protocol/v1/`: Versioned canonical JSON Schema specifications for manifests, tasks, proof bundles, and validation decisions.
-- `tests/`: End-to-end integration and unit test suite verifying claims, disputes, leases, auth, and escrow boundaries.
+1. [Current state and GitHub snapshot](docs/PROJECT_STATUS.md)
+2. [Audit evidence, reproduction and remaining limits](docs/AUDIT_VERIFICATION.md)
+3. For implementation work: [security controls](docs/SECURITY_REMEDIATION.md),
+   [accounting controls](docs/ACCOUNTING_REMEDIATION.md),
+   [outbox contract](docs/EVENT_OUTBOX.md), [repository map](docs/REPOSITORY_MAP.md).
 
-## Tech Stack
-- Python 3.11+ / FastAPI / Uvicorn
-- SQLAlchemy 2.0+ / Alembic (migrations)
-- SQLite (WAL mode) / PostgreSQL (production target)
-- Ed25519 (cryptography library) / did:key
-- Pydantic v2 / jsonschema
-- Pytest / HTTPX TestClient
+## Standing workflow
 
-## Key Files
-- `server/agentforge_server/app.py`: Main API application entrypoint and routes.
-- `server/agentforge_server/services.py`: Authoritative state transitions and marketplace logic.
-- `server/agentforge_server/settlement.py`: Abstract settlement provider boundary.
-- `server/agentforge_server/crypto.py`: DID authentication and signature verification.
-- `docs/PR_PLAN.md`: Phased engineering roadmap (PR 1 through PR 8).
-- `docs/AUDIT_VERIFICATION.md`: Verification records, test logs, and audit trails.
-- `docs/EVENT_OUTBOX.md`: Signed event outbox contract, configuration, and non-goals.
+- Work only on the session-assigned branch. This session is
+  `arena/01a0af8f-agentforge`. Preserve existing working-tree changes.
+- Web agent implements; a separate local/auditing agent reviews and tests;
+  **human maintainer alone decides and performs merges**.
+- Never merge/close PRs, self-approve, push `main`, force-push or rewrite shared
+  history. Report any unexpected merge; the maintainer decides whether to revert.
+- Green tests, CI or mergeability are not approval. Verify live GitHub state
+  before making publication claims; local and remote heads may differ.
+- No credentials in chat, repository, proofs or logs. Use existing GitHub
+  authentication; a broken connection must be reconnected through Arena.
 
-## Constraints
-- **Role Split & Collaboration**: Web Agent drives feature development; Antigravity Agent audits changes, tests against live suites/OCI, fixes minor bugs via targeted PRs, and reports architecture defects back to Web Agent.
-- **Settlement Isolation**: Never hardcode speculative FLOP contracts or tokens in core marketplace logic. Keep all settlement behind `SettlementProvider` abstraction.
-- **Publisher vs Identity**: The event publisher key signs canonical envelopes so a third party can verify that this instance emitted a recorded transition. It is not an identity root, never authenticates agents, and must never carry private payloads, secrets, or key material.
-- **One Agent Runtime**: All agents share one runtime and protocol surface; a single agent may post, discover, claim, execute, submit, validate, and settle. Never model permanently separated agent populations (for example sensor vs specialist roles) — only configuration, capability, policy, and history differ.
-- **Strict Layer Separation**: No direct DB access in API route handlers; all domain logic belongs in `services.py`.
-- **Identity Invariant**: AgentForge is NOT the root of identity. DIDs (Ed25519) prove key control. Tasks and reputation are earned via signed, validated history.
-- **Storage Safety**: State must be durable in SQL (never in ephemeral KV or Redis alone). Atomic lease claims prevent race conditions.
-- **Do NOT Touch FLOP Starter**: `scripts/flop-agent-starter/` is strictly quarantined and must not be modified or run until official testnet launch.
+## Scope boundaries
 
-## Current Focus
-- Base MVP repository initialized and pushed to `https://github.com/CryptoExplor/agentforge.git`.
-- Audit pipeline established: Web Agent implements -> Antigravity audits & tests -> Micro-fixes committed -> Web Agent notified of architectural feedback.
-- Supporting user's 24/7 Technocore airdrop swarm on OCI (`technocore_agent.py`) while preparing AgentForge integration.
+AgentForge is a neutral marketplace. The separate Activity Engine is an ordinary
+API/SDK client owned by the local agent, not part of marketplace implementation.
+No fleet strategy, provider-key management, scheduling, OpenSea or airdrop logic
+belongs in the core. Its requested source is absent from this checkout; consult
+[the external-client review](docs/ACTIVITY_ENGINE_P0_REVIEW.md), not imagined files.
+
+Preserve public signing/contracts and flat Python SDK compatibility. Do not
+start SDK modularization, broker/MCP/discovery runtime or deployment work before
+its security and approval gates. The accepted designs remain in
+[SDK plan](docs/SDK_ARCHITECTURE_PLAN.md) and
+[discovery plan](docs/DISCOVERY_SCALABILITY_PLAN.md); they are not shipped features.
+TCLK is coordination, not settlement. Do not invent FLOP interfaces from drafts.
+`scripts/flop-agent-starter/`, if present, remains quarantined: do not modify or
+run it before an officially authorized testnet phase.
+
+## Maintaining these docs
+
+- `PROJECT_STATUS.md`: current state, blockers and GitHub snapshot only.
+- `AUDIT_VERIFICATION.md`: commands, measured results and audit scope only.
+- Remediation/architecture documents: technical policies and compatibility.
+- Dated audit/readiness documents: historical evidence, explicitly labeled.
+- `GITHUB_HANDOFF.md` and `PR_PLAN.md`: workflow links and gates, not repeated context.
