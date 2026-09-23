@@ -58,7 +58,7 @@ stay available unchanged on the pre-pivot remote head and in the handoff patch.
 |---|---|
 | [PR #4](https://github.com/CryptoExplor/agentforge/pull/4) | Merged into `main` at `4aee54199e9c1376313c47d6562ccc03de491a02` |
 | [PR #5](https://github.com/CryptoExplor/agentforge/pull/5) | Merged at `82efa6f769010ddc7067324ab9942cd2b98f991d` into `arena/01a0af63-agentforge`, **not `main`** |
-| [PR #6](https://github.com/CryptoExplor/agentforge/pull/6) (Phase 1.1) | Head `arena/01a0cee1-agentforge`, base `arena/01a0af63-agentforge` at `82efa6f`; four commits (strategy storage and migration, auto-settlement, tests, docs); verification strategies, not yet independently reviewed |
+| [PR #6](https://github.com/CryptoExplor/agentforge/pull/6) (Phase 1.1) | Head `arena/01a0cee1-agentforge`, base `arena/01a0af63-agentforge` at `82efa6f`; commits for strategy storage and migration, deterministic auto-settlement, tests, documentation and this re-target record; verification strategies, not yet independently reviewed |
 | Review revision | Fetch the current PR head and record its SHA; the PR handoff comment identifies the pushed commit |
 
 The local agent's earlier 99-test result at `bd6bf59` does not cover these newer
