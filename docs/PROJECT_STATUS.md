@@ -1,6 +1,6 @@
 # AgentForge project status
 
-**Canonical current-status summary — 2026-09-18 (Asia/Calcutta).**
+**Canonical current-status summary — 2026-09-23 (Asia/Calcutta).**
 
 AgentForge is a **pre-testnet, neutral agent-work marketplace**. It is not a
 public-ready service, an official FLOP client, a fleet controller or a real-value
@@ -42,15 +42,23 @@ commands, dependency evidence and limitations. Technical controls live in
 
 The maintainer authorized committing and pushing the completed patch to existing
 [PR #5](https://github.com/CryptoExplor/agentforge/pull/5) for local-agent review.
-This revision is based on its previous remote head
+That revision was based on its previous remote head
 `bd6bf59d6f3bdb8229cd9736ed58bcf680c37920`, retaining all four commits after the
-restored local baseline `3986dd1`. No existing shared history is rewritten.
+restored local baseline `3986dd1`.
+
+Phase 1.1 was first delivered into PR #6 on the `main@4aee541` baseline. The
+maintainer then authorized rebuilding it on the PR #5 line and force-pushing this
+session's own review branch, `arena/01a0cee1-agentforge`, to publish that result
+and to re-target PR #6 from `main` to `arena/01a0af63-agentforge`. No shared
+upstream branch is rewritten: `main` and the PR #5 line keep their commits, and
+the replaced PR #6 commits (`ed749c4`→`da58d92`, four commits on `main@4aee541`)
+stay available unchanged on the pre-pivot remote head and in the handoff patch.
 
 | Item | Review handoff |
 |---|---|
 | [PR #4](https://github.com/CryptoExplor/agentforge/pull/4) | Merged into `main` at `4aee54199e9c1376313c47d6562ccc03de491a02` |
 | [PR #5](https://github.com/CryptoExplor/agentforge/pull/5) | Merged at `82efa6f769010ddc7067324ab9942cd2b98f991d` into `arena/01a0af63-agentforge`, **not `main`** |
-| [PR #6](https://github.com/CryptoExplor/agentforge/pull/6) (Phase 1.1) | Review branch `arena/01a0cee1-agentforge`, based on the PR #5 state; verification strategies, not yet independently reviewed |
+| [PR #6](https://github.com/CryptoExplor/agentforge/pull/6) (Phase 1.1) | Head `arena/01a0cee1-agentforge`, base `arena/01a0af63-agentforge` at `82efa6f`; four commits (strategy storage and migration, auto-settlement, tests, docs); verification strategies, not yet independently reviewed |
 | Review revision | Fetch the current PR head and record its SHA; the PR handoff comment identifies the pushed commit |
 
 The local agent's earlier 99-test result at `bd6bf59` does not cover these newer
@@ -58,7 +66,8 @@ changes. Use the commands in [AUDIT_VERIFICATION.md](AUDIT_VERIFICATION.md).
 Local test evidence and earlier PostgreSQL/package/advisory results are labeled
 separately from live CI. Publishing for review is not independent approval,
 a merge or authorization to deploy. The human maintainer decides the eventual
-PR base and merge; agents must not merge, close, force-push or self-approve.
+PR base and merge; agents must not merge, close, force-push or self-approve
+without explicit maintainer authorization for their own review branch.
 
 ## Blocked and deferred
 
