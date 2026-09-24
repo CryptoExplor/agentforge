@@ -55,3 +55,23 @@ def money_sum(*values: Decimal) -> Decimal:
         result = sum(operands, ZERO)
     money_string(result)  # Enforce the same storage bound on SQLite and PostgreSQL.
     return result
+
+
+def fee_at_bps(amount: Decimal, bps: int) -> Decimal:
+    """Exact basis-point share of ``amount`` (never rounds, fails closed).
+
+    Division by 10000 (2^4 * 5^4) always terminates in decimal, so with ample
+    precision the Inexact trap can only fire on a caller bug or an amount at
+    the storage boundary — in which case settlement aborts instead of
+    silently rounding marketplace fees.
+    """
+    number = _decimal(amount)
+    if isinstance(bps, bool) or not isinstance(bps, int):
+        raise ValueError("bps must be an integer")
+    if not 0 <= bps <= 10000:
+        raise ValueError("bps must be between 0 and 10000")
+    context = Context(prec=200, traps=[InvalidOperation, Inexact, Rounded, Overflow])
+    with localcontext(context):
+        result = number * Decimal(bps) / Decimal(10000)
+    money_string(result)  # Enforce the same storage bound on SQLite and PostgreSQL.
+    return result

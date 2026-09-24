@@ -32,6 +32,28 @@ Implemented in this review revision:
   the approval-listed validator path, a late validator gets `409` on an already
   auto-settled deterministic task, and Alembic head moves to `e7f8a9b0c1d2`. See
   [task verification strategies](TASK_VERIFICATION_STRATEGIES.md).
+- Phase 1.2 operator registry and SQL task queries: an additive migration
+  (`f8a9b0c1d2e3`) adds the `operator_role_grants` registry plus `tasks(kind)` /
+  `tasks(verification_strategy)` indexes. Validation decisions (new task-scoped
+  `POST /api/v1/tasks/{task_id}/validations`, the submission-scoped endpoint and
+  dispute resolution) now require an explicit, revocable `validator` registry
+  role on top of the allowlist and capability checks; development
+  `OPEN_OPERATORS=true` self-registration keeps local suites working while
+  production rejects unauthorized submissions with
+  `403 "agent not authorized as validator"`. `GET /api/v1/tasks` filters,
+  orders and paginates in SQL with `limit` (default 50, max 100) plus keyset
+  `cursor` / `offset` pagination, preserving the legacy `{"tasks": [...]}` body
+  for callers that do not opt into pagination metadata. See
+  [operator registry](OPERATOR_REGISTRY.md).
+- Phase 1.3 generic platform fee engine on the mock settlement ledger: tasks may
+  declare `service_fee_mode` `none|fixed|bps` bounded by the operator cap
+  (`AGENTFORGE_MAX_SERVICE_FEE_BPS`, default 500 bps); the effective fee is
+  derived at settlement from the amount actually released, credits the internal
+  `agentforge:platform` system account with the exact idempotency key
+  `task:{id}:fee:{decision}` and a `PLATFORM_FEE_COLLECTED` audit event, and the
+  conservation invariant extends to `released + platform_fee + refunded +
+  slashed == reserved_total`. Refunds and slashes never carry a fee. Alembic
+  head moves to `a9b8c7d6e5f4` (`escrows.platform_fee_amount`).
 
 See [verification and audit findings](AUDIT_VERIFICATION.md) for exact test counts,
 commands, dependency evidence and limitations. Technical controls live in

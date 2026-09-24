@@ -12,6 +12,7 @@ from sqlalchemy import case, func, select, update
 from sqlalchemy.orm import Session
 
 from .crypto import canonical_json, sha256_json
+from .money import ZERO, dec, fee_at_bps, money_string, money_sum
 from .models import (
     Agent,
     AgentCapability,
@@ -27,9 +28,6 @@ from .models import (
     Task,
     ValidationDecision,
 )
-
-
-from .money import ZERO, dec, money_string, money_sum
 
 
 def now() -> float:
@@ -608,6 +606,87 @@ def fund_task(db: Session, task: Task) -> Escrow | None:
     return get_settlement_provider().fund(db, task)
 
 
+#: Internal system account that receives collected platform service fees.
+#: It is a marketplace participant on the mock ledger only: never an active
+#: agent, never signer-authenticatable, and never an external asset holder.
+PLATFORM_ACCOUNT_DID = "agentforge:platform"
+
+#: Fee modes understood by derive_platform_fee. Unknown stored modes fail
+#: safe: no fee is collected.
+FEE_MODES = ("none", "fixed", "bps")
+
+
+def platform_fee_economics(economics: dict) -> dict:
+    """Normalize the declared fee fields of a task's economics JSON."""
+    economics = economics or {}
+    mode = str(economics.get("service_fee_mode") or "none").strip().lower()
+    if mode not in FEE_MODES:
+        mode = "none"
+    try:
+        bps = int(economics.get("service_fee_bps") or 0)
+    except (TypeError, ValueError):
+        bps = 0
+    bps = max(0, min(bps, 10000))
+    fixed = dec((economics.get("agentforge_service_fee") or {}).get("amount", "0"))
+    return {"mode": mode, "bps": bps, "fixed": fixed}
+
+
+def derive_platform_fee(task: Task, released: Decimal) -> Decimal:
+    """Derive the effective platform fee from the amount actually released.
+
+    Generic marketplace mechanism on the mock ledger (MOCK/TEST_CREDIT only):
+
+    - ``none``: always zero.
+    - ``fixed``: the declared flat amount, never exceeding the release.
+    - ``bps``: the declared basis points of the release (exact Decimal; the
+      operator creation cap bounds ``bps`` before funding).
+
+    Refunds and slashes never carry a fee: the marketplace charges posters
+    nothing for aborted or unfulfilled tasks and must never profit from
+    dishonest work or disputes. Zero-fee settlement keeps byte-for-byte the
+    historical ledger behavior.
+    """
+    if released <= ZERO:
+        return ZERO
+    declared = platform_fee_economics(task.economics)
+    if declared["mode"] == "fixed":
+        return declared["fixed"] if declared["fixed"] < released else released
+    if declared["mode"] == "bps" and declared["bps"] > 0:
+        fee = fee_at_bps(released, declared["bps"])
+        return fee if fee < released else released
+    return ZERO
+
+
+def ensure_platform_participant(db: Session) -> None:
+    """Create the internal platform system agent row when first needed.
+
+    LedgerAccount references agents.did, so crediting the platform account
+    requires the participant row. It is ``status='system'``: excluded from
+    active search, never able to authenticate, and visible only as an
+    ordinary public agent record for transparency. Concurrent settlement
+    races are contained by a savepoint.
+    """
+    if db.get(Agent, PLATFORM_ACCOUNT_DID):
+        return
+    from sqlalchemy.exc import IntegrityError
+
+    try:
+        with db.begin_nested():
+            db.add(
+                Agent(
+                    did=PLATFORM_ACCOUNT_DID,
+                    name="AgentForge Platform",
+                    manifest={},
+                    status="system",
+                    created_at=now(),
+                    updated_at=now(),
+                )
+            )
+            db.flush()
+    except IntegrityError:
+        pass
+
+
 def escrow_settle(
     db: Session,
     *,
@@ -620,7 +699,9 @@ def escrow_settle(
 
     The mock provider preserves FULL_RELEASE, PARTIAL_RELEASE, REFUND, SLASH,
     Decimal/string accounting, ledger idempotency keys, audit events,
-    mock_burn, terminal exclusivity, and conservation.
+    mock_burn, terminal exclusivity, and the extended conservation invariant
+    executor_release + platform_fee + requester_refund + slash ==
+    reserved_total (the fee is zero on refunds and slashes).
     """
     from .settlement import get_settlement_provider
 

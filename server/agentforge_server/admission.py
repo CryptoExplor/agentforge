@@ -51,6 +51,10 @@ def validate_security_configuration() -> None:
             raise ValueError("invalid trusted validator identity") from exc
     if settings.environment == "production" and settings.enable_mock_faucet:
         raise ValueError("mock faucet is forbidden in production")
+    if settings.environment == "production" and settings.open_operators:
+        raise ValueError("OPEN_OPERATORS self-registration is forbidden in production; use explicit operator role grants")
+    if type(settings.max_service_fee_bps) is not int or not 0 <= settings.max_service_fee_bps <= 10_000:
+        raise ValueError("max service fee bps must be an integer between 0 and 10000")
 
 
 def _bucket(scope: str, identity: str) -> str:

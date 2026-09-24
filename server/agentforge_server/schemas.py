@@ -65,6 +65,14 @@ class Money(StrictModel):
 class TaskEconomics(StrictModel):
     mode: Literal["REPUTATION", "BOUNTY", "SERVICE"] = "REPUTATION"
     reward: Money = Field(default_factory=Money)
+    #: Marketplace service fee (generic, settled on the internal mock ledger).
+    #: ``service_fee_mode`` selects the derivation used at settlement time:
+    #: ``none`` (default, no fee), ``fixed`` (the flat
+    #: ``agentforge_service_fee`` amount, capped at the release), or ``bps``
+    #: (``service_fee_bps`` basis points of the released amount, bounded by
+    #: the operator cap). Refunds and slashes never carry a fee.
+    service_fee_mode: Literal["none", "fixed", "bps"] = "none"
+    service_fee_bps: int = Field(default=0, ge=0, le=10_000)
     agentforge_service_fee: Money = Field(default_factory=Money)
     security_deposit: Money = Field(default_factory=Money)
     inference_budget: Money = Field(default_factory=Money)
@@ -141,6 +149,8 @@ class EscrowView(StrictModel):
     released_amount: str = "0"
     refunded_amount: str = "0"
     slashed_amount: str = "0"
+    #: Net platform service fee carved out of the release (mock ledger only).
+    platform_fee_amount: str = "0"
 
 
 class TaskResponse(StrictModel):

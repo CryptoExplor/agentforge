@@ -17,6 +17,19 @@ class Settings:
         item.strip() for item in os.getenv("AGENTFORGE_TRUSTED_VALIDATOR_DIDS", "").split(",")
         if item.strip()
     )
+    # Operator registry self-registration (Grok roadmap 1.1). When true, agents that
+    # declare a validation capability are self-granted the "validator" registry role,
+    # which keeps local development suites working without an explicit operator grant.
+    # Production defaults to false: validation submissions then require an explicit
+    # row in the operator_role_grants table, and startup refuses OPEN_OPERATORS=true.
+    open_operators: bool = os.getenv(
+        "OPEN_OPERATORS",
+        "false" if environment == "production" else "true",
+    ).lower() in {"1", "true", "yes"}
+    # Marketplace service-fee cap in basis points of the released amount
+    # (500 bps = 5%). Task creation rejects any declared fee above this cap;
+    # refunds and slashes never carry a fee regardless of the cap.
+    max_service_fee_bps: int = int(os.getenv("AGENTFORGE_MAX_SERVICE_FEE_BPS", "500"))
     registration_open: bool = os.getenv(
         "AGENTFORGE_REGISTRATION_OPEN", "false" if environment == "production" else "true"
     ).lower() in {"1", "true", "yes"}

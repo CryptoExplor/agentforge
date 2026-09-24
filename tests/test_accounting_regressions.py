@@ -18,8 +18,8 @@ from sqlalchemy.orm import Session
 from agentforge_server import db, services
 from agentforge_server.app import create_app
 from agentforge_server.models import (
-    Base, Claim, Dispute, Escrow, LedgerAccount, LedgerEvent, OutboxEvent,
-    ReputationEvent, Submission, Task, ValidationDecision,
+    Agent, AuditEvent, Base, Claim, Dispute, Escrow, LedgerAccount, LedgerEvent,
+    OutboxEvent, ReputationEvent, Submission, Task, ValidationDecision,
 )
 from agentforge_server.money import dec, money_string, money_sum
 from agentforge_server.settings import settings
@@ -189,15 +189,18 @@ def test_postgres_forced_cas_collision_retries_fresh_balance(ledger_engine, monk
         assert session.scalar(select(func.count()).select_from(LedgerEvent)) == 2
 
 
-def make_funded(engine, *, reward="10", deposit="2", inference="1"):
+def make_funded(engine, *, reward="10", deposit="2", inference="1", fee=None):
     seed(engine, "did:audit:payer", "1000")
     seed(engine, "did:audit:executor", "0")
     task_id = "T_" + uuid.uuid4().hex
+    economics = {"reward": {"amount": reward}, "security_deposit": {"amount": deposit},
+                 "inference_budget": {"amount": inference}}
+    if fee:
+        economics.update(fee)
     with Session(engine) as session:
         task = Task(id=task_id, poster_did="did:audit:payer", kind="research", origin="research",
                     acceptance_hash="a" * 64, task_hash="b" * 64, created_at=0, updated_at=0,
-                    economics={"reward": {"amount": reward}, "security_deposit": {"amount": deposit},
-                               "inference_budget": {"amount": inference}})
+                    economics=economics)
         session.add(task)
         session.flush()
         services.fund_task(session, task)
@@ -490,3 +493,254 @@ def test_postgres_cancel_rechecks_state_after_competing_claim(client, monkeypatc
         assert session.get(Escrow, task["id"]).status == "FUNDED"
         assert balance(session, poster.did) == 990
         assert session.scalar(select(func.count()).select_from(OutboxEvent).where(OutboxEvent.kind == "TASK_CANCELLED")) == 0
+
+
+# ---------------------------------------------------------------------------
+# Phase 1.3: generic platform fee engine on the mock settlement ledger.
+# Conservation: executor_release + platform_fee + requester_refund + slash
+# == reserved_total. Zero fee on refunds and slashes, always.
+# ---------------------------------------------------------------------------
+
+
+def fee_economics(*, mode, bps=0, fixed="0", reward="10", deposit="2", inference="1"):
+    return {
+        "mode": "BOUNTY",
+        "service_fee_mode": mode,
+        "service_fee_bps": bps,
+        "agentforge_service_fee": {"amount": fixed, "asset": "MOCK"},
+        "reward": {"amount": reward, "asset": "MOCK"},
+        "security_deposit": {"amount": deposit, "asset": "MOCK"},
+        "inference_budget": {"amount": inference, "asset": "MOCK"},
+    }
+
+
+def fee_event(session, task_id, decision):
+    return session.scalar(select(LedgerEvent).where(
+        LedgerEvent.idempotency_key == f"task:{task_id}:fee:{decision}",
+    ))
+
+
+def test_platform_fee_bps_full_release_exact_accounting(ledger_engine):
+    task_id = make_funded(ledger_engine, fee=fee_economics(mode="bps", bps=500))
+    with Session(ledger_engine) as session:
+        services.escrow_settle(session, task=session.get(Task, task_id),
+                               executor_did="did:audit:executor", decision="VERIFIED")
+        session.commit()
+        escrow = session.get(Escrow, task_id)
+        # Exact decimals: 500 bps of the 10 reward is 0.5; executor nets 9.5.
+        assert (escrow.released_amount, escrow.platform_fee_amount) == ("9.5", "0.5")
+        assert (escrow.refunded_amount, escrow.slashed_amount) == ("3", "0")
+        # Extended conservation invariant, exact.
+        assert (Decimal(escrow.released_amount) + Decimal(escrow.platform_fee_amount)
+                + Decimal(escrow.refunded_amount) + Decimal(escrow.slashed_amount)
+                == Decimal(escrow.reserved_total) == Decimal("13"))
+        assert balance(session, "did:audit:executor") == Decimal("9.5")
+        assert balance(session, "agentforge:platform") == Decimal("0.5")
+        assert balance(session, "did:audit:payer") == Decimal("990")  # 1000 - 13 + 3 refund
+        fee_row = fee_event(session, task_id, "VERIFIED")
+        assert fee_row is not None
+        assert (fee_row.did, fee_row.amount_delta, fee_row.reason) == ("agentforge:platform", "0.5", "FULL_RELEASE")
+        # Deltas sum to zero conservation across the whole ledger (no burn here).
+        deltas = [Decimal(row.amount_delta) for row in session.scalars(select(LedgerEvent))]
+        assert sum(deltas, Decimal("0")) == 0
+        # Audit trail: dedicated PLATFORM_FEE_COLLECTED event with the idempotency key.
+        audits = session.scalars(select(AuditEvent).where(
+            AuditEvent.kind == "PLATFORM_FEE_COLLECTED", AuditEvent.aggregate_id == task_id,
+        )).all()
+        assert len(audits) == 1
+        assert audits[0].payload["idempotency_key"] == f"task:{task_id}:fee:VERIFIED"
+        assert audits[0].payload["platform_fee_amount"] == "0.5"
+        # The platform participant is an internal system agent, never active.
+        platform = session.get(Agent, "agentforge:platform")
+        assert platform is not None and platform.status == "system"
+
+
+def test_platform_fee_bps_derives_from_released_amount_on_partial(ledger_engine):
+    task_id = make_funded(ledger_engine, fee=fee_economics(mode="bps", bps=500))
+    with Session(ledger_engine) as session:
+        services.escrow_settle(session, task=session.get(Task, task_id),
+                               executor_did="did:audit:executor",
+                               decision="PARTIAL", settlement={"executor_amount": "4"})
+        session.commit()
+        escrow = session.get(Escrow, task_id)
+        # Fee derives from the 4 actually released: 500 bps -> 0.2, not from the reward.
+        assert (escrow.released_amount, escrow.platform_fee_amount) == ("3.8", "0.2")
+        assert escrow.refunded_amount == "9"  # (10 - 4) + 2 + 1
+        assert balance(session, "did:audit:executor") == Decimal("3.8")
+        assert balance(session, "agentforge:platform") == Decimal("0.2")
+        assert balance(session, "did:audit:payer") == Decimal("996")  # 1000 - 13 + 9
+        assert (Decimal(escrow.released_amount) + Decimal(escrow.platform_fee_amount)
+                + Decimal(escrow.refunded_amount) + Decimal(escrow.slashed_amount)
+                == Decimal("13"))
+
+
+def test_platform_fee_fixed_mode_full_release(ledger_engine):
+    task_id = make_funded(ledger_engine, fee=fee_economics(mode="fixed", fixed="2"))
+    with Session(ledger_engine) as session:
+        services.escrow_settle(session, task=session.get(Task, task_id),
+                               executor_did="did:audit:executor", decision="VERIFIED")
+        session.commit()
+        escrow = session.get(Escrow, task_id)
+        assert (escrow.released_amount, escrow.platform_fee_amount) == ("8", "2")
+        assert balance(session, "did:audit:executor") == 8
+        assert balance(session, "agentforge:platform") == 2
+
+
+def test_platform_fee_fixed_mode_is_capped_at_the_release(ledger_engine):
+    # A partial release smaller than the declared fixed fee: the fee is capped
+    # at the release, the executor nets zero, and no release credit is posted.
+    task_id = make_funded(ledger_engine, fee=fee_economics(mode="fixed", fixed="2"))
+    with Session(ledger_engine) as session:
+        services.escrow_settle(session, task=session.get(Task, task_id),
+                               executor_did="did:audit:executor",
+                               decision="PARTIAL", settlement={"executor_amount": "1"})
+        session.commit()
+        escrow = session.get(Escrow, task_id)
+        assert (escrow.released_amount, escrow.platform_fee_amount) == ("0", "1")
+        assert balance(session, "did:audit:executor") == 0
+        assert balance(session, "agentforge:platform") == 1
+        assert balance(session, "did:audit:payer") == 999  # 1000 - 13 + 12 refund
+        assert fee_event(session, task_id, "PARTIAL") is not None
+        assert session.scalar(select(LedgerEvent).where(
+            LedgerEvent.idempotency_key == f"task:{task_id}:release:PARTIAL")) is None
+
+
+def test_zero_fee_on_refund_never_credits_platform(ledger_engine):
+    task_id = make_funded(ledger_engine, fee=fee_economics(mode="bps", bps=500))
+    with Session(ledger_engine) as session:
+        services.escrow_settle(session, task=session.get(Task, task_id),
+                               executor_did="did:audit:executor", decision="REJECTED")
+        session.commit()
+        escrow = session.get(Escrow, task_id)
+        assert escrow.platform_fee_amount == "0" and escrow.refunded_amount == "13"
+        assert balance(session, "agentforge:platform") == 0
+        assert session.scalar(select(LedgerAccount).where(
+            LedgerAccount.did == "agentforge:platform")) is None
+        assert fee_event(session, task_id, "REJECTED") is None
+        assert session.scalar(select(AuditEvent).where(
+            AuditEvent.kind == "PLATFORM_FEE_COLLECTED", AuditEvent.aggregate_id == task_id,
+        )) is None
+
+
+def test_zero_fee_on_slash_never_credits_platform(ledger_engine):
+    task_id = make_funded(ledger_engine, fee=fee_economics(mode="bps", bps=500))
+    with Session(ledger_engine) as session:
+        services.escrow_settle(session, task=session.get(Task, task_id),
+                               executor_did="did:audit:executor",
+                               decision="SLASHED", settlement={"slash_subject": "requester"})
+        session.commit()
+        escrow = session.get(Escrow, task_id)
+        # Slash punishes; the marketplace must never profit from disputes.
+        assert (escrow.released_amount, escrow.platform_fee_amount) == ("0", "0")
+        assert escrow.slashed_amount == "2" and escrow.refunded_amount == "11"
+        assert balance(session, "agentforge:platform") == 0
+        assert fee_event(session, task_id, "SLASHED") is None
+
+
+@pytest.mark.parametrize("decision,settlement", [("VERIFIED", {}), ("PARTIAL", {"executor_amount": "1e-28"})])
+def test_platform_fee_stays_exact_under_hostile_precision(ledger_engine, decision, settlement):
+    task_id = make_funded(
+        ledger_engine, reward="1.00000000000000000000000000001",
+        fee=fee_economics(mode="bps", bps=500, reward="1.00000000000000000000000000001"),
+    )
+    with Session(ledger_engine) as session, localcontext() as context:
+        context.prec = 2  # Application code must not inherit this precision.
+        services.escrow_settle(session, task=session.get(Task, task_id), executor_did="did:audit:executor",
+                               decision=decision, settlement=settlement)
+        session.commit()
+        escrow = session.get(Escrow, task_id)
+        with localcontext() as reference:
+            reference.prec = 200
+            released, charged = Decimal(escrow.released_amount), Decimal(escrow.platform_fee_amount)
+            assert released + charged + Decimal(escrow.refunded_amount) + Decimal(escrow.slashed_amount) \
+                == Decimal(escrow.reserved_total)
+            assert balance(session, "did:audit:executor") == released
+            assert balance(session, "agentforge:platform") == charged
+
+
+def test_platform_fee_default_tasks_keep_historical_ledger(ledger_engine):
+    task_id = make_funded(ledger_engine)
+    with Session(ledger_engine) as session:
+        services.escrow_settle(session, task=session.get(Task, task_id),
+                               executor_did="did:audit:executor", decision="VERIFIED")
+        session.commit()
+        escrow = session.get(Escrow, task_id)
+        assert (escrow.released_amount, escrow.platform_fee_amount) == ("10", "0")
+        assert session.get(Agent, "agentforge:platform") is None
+        assert fee_event(session, task_id, "VERIFIED") is None
+
+
+def prepared_fee_submission(client, economics):
+    poster, executor, validator = (AgentIdentity.generate() for _ in range(3))
+    register(client, poster)
+    register(client, executor)
+    register(client, validator, {"name": "validator", "capabilities": ["validation"]})
+    settings.trusted_validator_dids = settings.trusted_validator_dids | {validator.did}
+    payload = task_payload(economics=economics)
+    task = create_task(client, poster, payload)
+    assert signed_request(client, executor, "POST", f"/api/v1/tasks/{task['id']}/claim", {}).status_code == 200
+    submission, _ = submit(client, task, executor)
+    return poster, executor, validator, task, submission
+
+
+def test_api_fee_task_settles_with_exact_platform_accounting(client):
+    economics = fee_economics(mode="bps", bps=500)
+    poster, executor, validator, task, submission = prepared_fee_submission(client, economics)
+    body = decision_payload(client, validator, submission, "VERIFIED")
+    assert signed_request(client, validator, "POST", f"/api/v1/submissions/{submission['submission_id']}/validate", body).status_code == 200
+    final = client.get(f"/api/v1/tasks/{task['id']}").json()
+    assert final["status"] == "VERIFIED"
+    # The documented escrow view exposes the collected fee.
+    assert final["escrow"]["platform_fee_amount"] == "0.5"
+    assert final["escrow"]["released_amount"] == "9.5"
+    with db.SessionLocal() as session:
+        assert balance(session, executor.did) == Decimal("1009.5")  # 1000 faucet + 9.5 net release
+        assert balance(session, "agentforge:platform") == Decimal("0.5")
+        assert balance(session, poster.did) == Decimal("990")  # faucet 1000 - 13 + 3
+        assert session.get(Agent, "agentforge:platform").status == "system"
+
+
+def test_api_rejects_declared_service_fees_above_the_operator_cap(client, monkeypatch):
+    from agentforge_server.admission import validate_security_configuration
+
+    poster = AgentIdentity.generate()
+    register(client, poster)
+
+    def create(economics):
+        return signed_request(client, poster, "POST", "/api/v1/tasks", task_payload(economics=economics))
+
+    # bps above the 500 default cap.
+    response = create(fee_economics(mode="bps", bps=501))
+    assert response.status_code == 400, response.text
+    assert "operator cap" in response.json()["detail"]
+    # fixed fee above 500 bps of the 10 reward (0.5).
+    response = create(fee_economics(mode="fixed", fixed="0.51"))
+    assert response.status_code == 400
+    assert "operator cap" in response.json()["detail"]
+    # exactly at the cap is allowed.
+    assert create(fee_economics(mode="bps", bps=500)).status_code == 200
+    assert create(fee_economics(mode="fixed", fixed="0.5")).status_code == 200
+    # mode/value mismatches.
+    assert create(fee_economics(mode="none", bps=250)).status_code == 400
+    assert create(fee_economics(mode="none", fixed="1")).status_code == 400
+    assert create(fee_economics(mode="bps", bps=100, fixed="1")).status_code == 400
+    assert create(fee_economics(mode="fixed", fixed="1", bps=100)).status_code == 400
+    # REPUTATION tasks never carry a platform fee.
+    reputation = task_payload(economics={"mode": "REPUTATION", "service_fee_mode": "bps", "service_fee_bps": 100})
+    assert signed_request(client, poster, "POST", "/api/v1/tasks", reputation).status_code == 400
+    # No rejected declaration may leave a task or escrow behind.
+    with db.SessionLocal() as session:
+        assert session.scalar(select(func.count()).select_from(Escrow)) == 2
+
+    # The operator cap itself is validated configuration.
+    monkeypatch.setattr(settings, "max_service_fee_bps", "50")
+    with pytest.raises(ValueError, match="max service fee bps"):
+        validate_security_configuration()
+    monkeypatch.setattr(settings, "max_service_fee_bps", -1)
+    with pytest.raises(ValueError, match="max service fee bps"):
+        validate_security_configuration()
+    monkeypatch.setattr(settings, "max_service_fee_bps", 10001)
+    with pytest.raises(ValueError, match="max service fee bps"):
+        validate_security_configuration()
+    monkeypatch.setattr(settings, "max_service_fee_bps", 10000)
+    validate_security_configuration()

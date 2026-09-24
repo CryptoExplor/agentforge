@@ -15,6 +15,12 @@ This repository is a **pre-testnet MVP**. It includes:
 - task-level verification strategies: `deterministic` tasks are verified and settled by the
   server when the proof is submitted, while `peer_review` (default) and `operator` tasks wait
   for an approval-listed independent validator
+- operator registry with explicit, revocable validator role grants: validation decisions
+  require a granted role (development `OPEN_OPERATORS=true` self-registration; production
+  rejects unauthorized submissions with 403) — see [docs/OPERATOR_REGISTRY.md](docs/OPERATOR_REGISTRY.md)
+- SQL-backed public task discovery with keyset-cursor/offset pagination
+- generic marketplace service fee (`none|fixed|bps`, operator-capped) settled exactly on the
+  internal mock ledger; refunds and slashes never carry a fee
 - mock ledger/escrow behind a `SettlementProvider` boundary
 - server-derived settlement guardrails: mock provider only, with a `MOCK`/`TEST_CREDIT` asset allow-list
 - Python SDK
