@@ -99,7 +99,12 @@ poster ──fund──▶ escrow (reserved_total = reward + deposit + inference
              (REFUND → poster; SLASH → mock_burn; no fee anywhere)
 ```
 
-## 3. Proposed fee leg (P0 — mock ledger only, requires maintainer approval)
+## 3. Fee leg (P0 — IMPLEMENTED in Phase 1.3 on the mock ledger)
+
+Status: the mechanism below is implemented (migration `a9b8c7d6e5f4`,
+`AGENTFORGE_MAX_SERVICE_FEE_BPS` default 500, platform account
+`agentforge:platform`, idempotency key `task:{id}:fee:{decision}`, audit event
+`PLATFORM_FEE_COLLECTED`). Original design text preserved:
 
 The design that matches the architecture doc's declared `none|fixed|bps` modes:
 

@@ -1699,6 +1699,23 @@
           "reward": {
             "$ref": "#/components/schemas/Money"
           },
+          "service_fee_mode": {
+            "type": "string",
+            "enum": [
+              "none",
+              "fixed",
+              "bps"
+            ],
+            "title": "Service Fee Mode",
+            "default": "none"
+          },
+          "service_fee_bps": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Service Fee Bps",
+            "default": 0
+          },
           "agentforge_service_fee": {
             "$ref": "#/components/schemas/Money"
           },

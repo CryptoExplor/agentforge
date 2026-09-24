@@ -26,6 +26,10 @@ class Settings:
         "OPEN_OPERATORS",
         "false" if environment == "production" else "true",
     ).lower() in {"1", "true", "yes"}
+    # Marketplace service-fee cap in basis points of the released amount
+    # (500 bps = 5%). Task creation rejects any declared fee above this cap;
+    # refunds and slashes never carry a fee regardless of the cap.
+    max_service_fee_bps: int = int(os.getenv("AGENTFORGE_MAX_SERVICE_FEE_BPS", "500"))
     registration_open: bool = os.getenv(
         "AGENTFORGE_REGISTRATION_OPEN", "false" if environment == "production" else "true"
     ).lower() in {"1", "true", "yes"}

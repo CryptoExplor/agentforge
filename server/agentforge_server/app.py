@@ -52,6 +52,7 @@ from .models import (
     UsedNonce,
     ValidationDecision,
 )
+from .money import fee_at_bps
 from .providers import ProviderUnavailable, get_provider
 from .schemas import (
     AgentManifest,
@@ -381,6 +382,7 @@ def create_app() -> FastAPI:
             "released_amount": escrow.released_amount,
             "refunded_amount": escrow.refunded_amount,
             "slashed_amount": escrow.slashed_amount,
+            "platform_fee_amount": escrow.platform_fee_amount,
         }
 
     def task_view(db: Session, task: Task) -> dict[str, Any]:
@@ -417,6 +419,38 @@ def create_app() -> FastAPI:
             raise http_error(400, "synthetic_demo provenance must be explicitly labelled")
         if body.economics.mode == "REPUTATION" and body.economics.reward.amount != "0":
             raise http_error(400, "REPUTATION tasks cannot have a monetary reward")
+        # Generic marketplace service fee (mock ledger only). The operator cap
+        # bounds every declared fee at creation; the effective fee is derived
+        # later from the amount actually released, and refunds/slashes never
+        # carry a fee.
+        fee_mode = body.economics.service_fee_mode
+        fee_bps = body.economics.service_fee_bps
+        fee_fixed = body.economics.agentforge_service_fee.amount
+        if fee_mode == "none":
+            if fee_bps != 0 or fee_fixed != "0":
+                raise http_error(400, "service fee mode 'none' cannot declare a fee value")
+        else:
+            if body.economics.mode == "REPUTATION":
+                raise http_error(400, "REPUTATION tasks cannot carry a platform service fee")
+            if fee_mode == "fixed":
+                if fee_bps != 0:
+                    raise http_error(400, "fixed service fee mode cannot declare bps")
+                max_fixed = fee_at_bps(Decimal(body.economics.reward.amount), settings.max_service_fee_bps)
+                if Decimal(fee_fixed) > max_fixed:
+                    raise http_error(
+                        400,
+                        "declared service fee exceeds the operator cap "
+                        f"({settings.max_service_fee_bps} bps of the reward)",
+                    )
+            else:
+                if fee_fixed != "0":
+                    raise http_error(400, "bps service fee mode cannot declare a fixed amount")
+                if fee_bps > settings.max_service_fee_bps:
+                    raise http_error(
+                        400,
+                        f"declared service fee {fee_bps} bps exceeds the operator cap "
+                        f"({settings.max_service_fee_bps} bps)",
+                    )
 
     @app.get("/api/v1/register/challenge")
     def registration_challenge(db: Session = Depends(get_db)):

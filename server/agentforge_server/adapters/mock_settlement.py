@@ -28,9 +28,12 @@ from sqlalchemy.orm import Session
 
 from ..models import Escrow, Task
 from ..services import (
+    PLATFORM_ACCOUNT_DID,
     ZERO,
     add_audit,
     dec,
+    derive_platform_fee,
+    ensure_platform_participant,
     money_string,
     money_sum,
     now,
@@ -182,7 +185,20 @@ class MockSettlementProvider:
         else:
             raise ValueError("unsupported settlement decision")
 
-        if money_sum(executor_amount, requester_refund, slashed) != dec(escrow.reserved_total):
+        # Generic marketplace service fee, derived from the amount actually
+        # released. Refunds and slashes never carry a fee: posters are never
+        # charged for aborted tasks and the platform never profits from
+        # slashed principal. Zero-fee paths keep the historical ledger shape.
+        platform_fee = ZERO
+        fee_mode = "none"
+        if decision in {"VERIFIED", "PARTIAL"} and executor_amount > ZERO:
+            platform_fee = derive_platform_fee(task, executor_amount)
+            if platform_fee > executor_amount:
+                platform_fee = executor_amount  # Defensive; derivation already caps.
+            fee_mode = str((task.economics or {}).get("service_fee_mode") or "none")
+        net_executor_amount = money_sum(executor_amount, platform_fee.copy_negate())
+
+        if money_sum(net_executor_amount, platform_fee, requester_refund, slashed) != dec(escrow.reserved_total):
             raise ValueError("escrow settlement does not conserve reserved value")
 
         # Reserve the one terminal transition BEFORE posting any credit. A plain
@@ -196,10 +212,13 @@ class MockSettlementProvider:
         db.refresh(escrow)
 
         credits = []
-        if executor_amount:
-            credits.append((executor_did, executor_amount, f"task:{task.id}:release:{decision}"))
+        if net_executor_amount:
+            credits.append((executor_did, net_executor_amount, f"task:{task.id}:release:{decision}"))
         if requester_refund:
             credits.append((escrow.payer_did, requester_refund, f"task:{task.id}:refund:{decision}"))
+        if platform_fee > ZERO:
+            ensure_platform_participant(db)
+            credits.append((PLATFORM_ACCOUNT_DID, platform_fee, f"task:{task.id}:fee:{decision}"))
         # Cross-party settlements must acquire account locks in the same order.
         for recipient, amount, key in sorted(credits, key=lambda item: (item[0], item[2])):
             post_ledger_event(
@@ -229,14 +248,30 @@ class MockSettlementProvider:
             payload={
                 "transition": transition,
                 "decision": decision,
-                "executor_amount": money_string(executor_amount),
+                "executor_amount": money_string(net_executor_amount),
+                "platform_fee_amount": money_string(platform_fee),
                 "requester_refund": money_string(requester_refund),
                 "slashed_amount": money_string(slashed),
                 "slash_subject": slash_subject,
                 "slash_destination": "mock_burn" if slashed > ZERO else "none",
             },
         )
-        escrow.released_amount = money_string(executor_amount)
+        if platform_fee > ZERO:
+            add_audit(
+                db,
+                actor_did=None,
+                kind="PLATFORM_FEE_COLLECTED",
+                aggregate_type="task",
+                aggregate_id=task.id,
+                payload={
+                    "platform_fee_amount": money_string(platform_fee),
+                    "fee_mode": fee_mode,
+                    "decision": decision,
+                    "idempotency_key": f"task:{task.id}:fee:{decision}",
+                },
+            )
+        escrow.released_amount = money_string(net_executor_amount)
+        escrow.platform_fee_amount = money_string(platform_fee)
         escrow.refunded_amount = money_string(requester_refund)
         escrow.slashed_amount = money_string(slashed)
         escrow.updated_at = now()

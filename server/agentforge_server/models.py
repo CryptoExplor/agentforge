@@ -255,6 +255,10 @@ class Escrow(Base):
     released_amount: Mapped[str] = mapped_column(String(80), default="0", nullable=False)
     refunded_amount: Mapped[str] = mapped_column(String(80), default="0", nullable=False)
     slashed_amount: Mapped[str] = mapped_column(String(80), default="0", nullable=False)
+    #: Net platform service fee carved out of the release (generic mock-ledger
+    #: marketplace mechanism; zero on refunds and slashes). Columns satisfy
+    #: released + platform_fee + refunded + slashed == reserved_total.
+    platform_fee_amount: Mapped[str] = mapped_column(String(80), default="0", nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="FUNDED", nullable=False)
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
     updated_at: Mapped[float] = mapped_column(Float, nullable=False)
