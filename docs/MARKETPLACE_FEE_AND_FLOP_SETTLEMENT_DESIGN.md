@@ -251,6 +251,43 @@ official published testnet rules and pinned interfaces, so a rules change costs
 nothing that was built. The marketplace must never be made dependent on
 airdrop economics.
 
+### 7.1 Farming vs. brokering: the maintainer's return comparison
+
+Comparison posed 2026-09-24: a self-run faucet farm (e.g. 1,000 identities
+spending faucet tokens) versus a successful marketplace (100k agents spending,
+platform charging 5%). Three corrections to the naive arithmetic:
+
+1. **No fixed spend→allocation conversion exists.** The agent airdrop is
+   "based largely on" spend against a **capped 1.2bn pool**: allocation is
+   pro-rata against *total network qualifying spend*, so it dilutes with
+   adoption and is unknown until settlement. The published 3:1 is only the
+   **unlock** of already-allocated airdrop — a continuing cost (post-TGE
+   inference spend) to liquidate locked rewards, not a conversion rate.
+2. **Fee revenue is not airdrop and never passes through 3:1.** Testnet-phase
+   platform fees are mock credits (zero FLOP value — rehearsal). If tasks are
+   later FLOP-settled (P4, mainnet era), fee revenue is liquid on receipt:
+   e.g. 100k agents × 1 FLOP/day GMV at 5% = 450k liquid FLOP per 90 days,
+   not 150k. It is also not pool-capped.
+3. **The scenarios are anti-correlated.** The same real demand that makes the
+   marketplace succeed is the denominator that collapses the farm's pro-rata
+   share; if the farm's share stays large, real demand never came and the
+   token is likely worthless. The farm only pays in the world where nothing
+   else works. Sybil filtering at settlement (Yellow Paper §12.3, A5) can
+   additionally zero the farm regardless.
+
+Structural conclusion: brokering real demand dominates farming on every axis —
+uncapped vs pool-capped, compounding vs linear in owned identities, liquid vs
+locked, durable vs confiscatable, and aligned with users (BYO-identity routing
+lets users keep 100% of their own airdrop while the platform charges only its
+task-settlement fee) rather than competing with them for one pool. The
+platform may itself participate as an ordinary user agent without sybil
+patterns. Reality gates: faucet rates, eligibility caps and anti-sybil
+criteria are unpublished; testnet fee revenue is mock until a real rail exists;
+and 100k–1M agents crosses the repository's pilot and measured-growth stages,
+of which the Phase 1.2 SQL query/pagination work is groundwork, not the finish
+line.
+
+### 7.2 Residual risks and open items
 
 - **FLOP figures are drafts**: 85/15 is "provisional, not ratified"; the
   validator fee leg is unlanded (interim 99/1); testnet/mainnet dates are
