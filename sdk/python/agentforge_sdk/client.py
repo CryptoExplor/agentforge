@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import tempfile
 import time
@@ -95,6 +96,14 @@ class AgentForgeClient:
         self.base_url = base_url.rstrip("/")
         self.identity = identity
         self.http = httpx.Client(timeout=timeout)
+        # Seconds to add to the local clock when signing, learned from the
+        # server's own ``X-Server-Timestamp`` response header. The server clock
+        # is authoritative and its drift window is tight, so a client whose
+        # local clock is skewed corrects itself instead of being locked out.
+        self.clock_offset: float = 0.0
+        # Local clock reading taken when the in-flight request was signed; the
+        # header learned afterwards is compared against it, not against "now".
+        self._received_at: float = time.time()
 
     def close(self) -> None:
         self.http.close()
@@ -114,6 +123,24 @@ class AgentForgeClient:
             raise AgentForgeError(f"HTTP {response.status_code}: {detail}")
         return response.json()
 
+    def _sync_clock(self, response: httpx.Response) -> None:
+        """Learn the server's clock from its response header.
+
+        Only the server's own header is trusted, and it moves a local offset —
+        it never changes what the server recorded. A malformed header is
+        ignored rather than allowed to corrupt signing.
+        """
+        header = response.headers.get("X-Server-Timestamp")
+        if not header:
+            return
+        try:
+            server_time = float(header)
+        except (TypeError, ValueError):
+            return
+        if not math.isfinite(server_time) or server_time <= 0:
+            return
+        self.clock_offset = server_time - self._received_at
+
     def _signed_request(
         self,
         method: str,
@@ -123,7 +150,10 @@ class AgentForgeClient:
         signing_path: str | None = None,
     ) -> Any:
         body = b"" if payload is None else canonical_json(payload).encode()
-        timestamp = str(int(time.time()))
+        # Local clock plus the offset learned from the server, so a skewed local
+        # clock does not push the signature outside the server's drift window.
+        self._received_at = time.time()
+        timestamp = str(int(self._received_at + self.clock_offset))
         nonce = uuid.uuid4().hex
         signature = self.identity.sign(
             request_bytes(method, signing_path or path, body, timestamp, nonce)
@@ -137,6 +167,7 @@ class AgentForgeClient:
             "Idempotency-Key": nonce,
         }
         response = self.http.request(method, self.base_url + path, content=body, headers=headers)
+        self._sync_clock(response)
         return self._decode(response)
 
     def register(self, manifest: dict[str, Any]) -> dict[str, Any]:

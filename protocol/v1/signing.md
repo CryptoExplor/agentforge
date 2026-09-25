@@ -22,6 +22,24 @@ Idempotency-Key
 
 The server rejects stale timestamps, reused nonces, unknown/inactive DIDs, invalid signatures, and bodies whose hash differs from the signed body.
 
+`UNIX_TIMESTAMP` is compared against the **server's** clock, never trusted as one.
+The server stamps every request with its own authoritative `received_at` at
+ingress and requires
+
+```text
+abs(X-Agent-Timestamp - received_at) <= clock drift tolerance   (default 60 seconds)
+```
+
+otherwise the request is rejected with `401 "client clock drift exceeds
+tolerance"`. A rejected request consumes no nonce and creates no state. Every
+`/api/v1` response carries `X-Server-Timestamp` so a client can measure and
+correct its own drift; the Python SDK does this automatically.
+
+Server time is also the only authority for deadlines: claim leases are always
+`received_at + lease`, so a client clock cannot extend an execution lease, and
+submission deadlines are evaluated against database server time. See
+[server time and clock drift](../../docs/SERVER_TIME_AND_CLOCK_DRIFT.md).
+
 ## Registration signature
 
 Sign:

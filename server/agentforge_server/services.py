@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-import time
+import math
 import uuid
 from decimal import Decimal
 from typing import Any
@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy import case, func, select, update
 from sqlalchemy.orm import Session
 
+from . import clock
 from .crypto import canonical_json, sha256_json
 from .money import ZERO, dec, fee_at_bps, money_string, money_sum
 from .models import (
@@ -28,10 +29,93 @@ from .models import (
     Task,
     ValidationDecision,
 )
+from .settings import settings
 
 
 def now() -> float:
-    return time.time()
+    """Authoritative server timestamp (monotonic-anchored; see :mod:`.clock`).
+
+    This is the only time source for server-recorded state. It is never a
+    client-supplied value, and it never moves backwards, so a rewound host clock
+    cannot extend an in-flight lease or re-open an expired one.
+    """
+    return clock.server_now()
+
+
+def lease_expiry(received_at: float, lease_seconds: float) -> float:
+    """Lease timeout derived strictly from the server-anchored receipt time.
+
+    A lease is ``received_at + lease_seconds`` and nothing else: not the client's
+    ``X-Agent-Timestamp``, not a body field, and not a later clock read inside the
+    handler. That is what stops an agent from extending its own execution window
+    by signing a request with a clock that runs ahead.
+    """
+    if isinstance(received_at, bool) or not isinstance(received_at, (int, float)):
+        raise ValueError("lease requires a numeric server-anchored received_at")
+    if not math.isfinite(float(received_at)) or float(received_at) <= 0:
+        raise ValueError("lease requires a positive server-anchored received_at")
+    if not math.isfinite(float(lease_seconds)) or float(lease_seconds) <= 0:
+        raise ValueError("lease duration must be positive and finite")
+    return float(received_at) + float(lease_seconds)
+
+
+def received_at_of(request: Any) -> float:
+    """The authoritative receipt time stamped at ingress for this request."""
+    return clock.request_received_at(request)
+
+
+def deadline_reference(db: Session) -> float:
+    """Authoritative "now" for absolute, client-declared deadlines.
+
+    Task deadlines arrive from the requester as absolute epoch seconds, so the
+    comparison is made against the *database* server clock (cross-checked
+    against the API host clock). Neither a skewed API host nor a skewed database
+    can widen a submission or dispute window; an unverifiable clock raises
+    :class:`~.clock.ClockUnavailable` and the caller fails closed.
+    """
+    return clock.deadline_reference(db)
+
+
+def deadline_passed(
+    db: Session,
+    deadline: float | None,
+    *,
+    reference: float | None = None,
+) -> bool:
+    """True when an absolute deadline has already passed on server time.
+
+    ``deadline is None`` means "no deadline", which never expires. The boundary
+    is inclusive (``reference >= deadline``) exactly as the pre-1.4 checks were,
+    so this changes the clock that decides, not the decision itself.
+    """
+    if deadline is None:
+        return False
+    if not math.isfinite(float(deadline)):
+        raise ValueError("deadline must be finite")
+    if reference is None:
+        reference = deadline_reference(db)
+    return float(reference) >= float(deadline)
+
+
+def dispute_window_closed(
+    db: Session,
+    task: Task,
+    *,
+    reference: float | None = None,
+) -> bool:
+    """True when the server-time dispute window for a task has closed.
+
+    A submission may be disputed while it is pending; once the task deadline has
+    passed, only ``settings.dispute_window_seconds`` of grace remain. Evaluated
+    against server time so neither a client clock nor a client-supplied
+    ``created_at`` can keep escrow frozen indefinitely. Tasks without a deadline
+    keep the pending-state-only rule.
+    """
+    if task.deadline is None:
+        return False
+    if reference is None:
+        reference = deadline_reference(db)
+    return float(reference) > float(task.deadline) + float(settings.dispute_window_seconds)
 
 
 def new_id(prefix: str) -> str:

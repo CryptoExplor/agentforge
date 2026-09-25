@@ -168,6 +168,10 @@ class Claim(Base):
     status: Mapped[str] = mapped_column(String(32), default="ACTIVE", nullable=False)
     lease_expires_at: Mapped[float] = mapped_column(Float, nullable=False)
     heartbeat_at: Mapped[float] = mapped_column(Float, nullable=False)
+    #: Authoritative server receipt time of the request that started or last
+    #: extended this lease (Grok roadmap 1.4). ``lease_expires_at`` is always
+    #: ``received_at + lease``: a client clock can never move it.
+    received_at: Mapped[float] = mapped_column(Float, nullable=False)
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
     updated_at: Mapped[float] = mapped_column(Float, nullable=False)
 
@@ -206,6 +210,11 @@ class Submission(Base):
     result_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     proof_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="SUBMITTED", nullable=False)
+    #: Authoritative server receipt time (Grok roadmap 1.4). ``created_at`` is
+    #: the executor-declared instant inside the signed proof and stays part of
+    #: that signature; every deadline decision uses this server value instead,
+    #: so a back-dated ``created_at`` cannot make a late proof look early.
+    received_at: Mapped[float] = mapped_column(Float, nullable=False)
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
     updated_at: Mapped[float] = mapped_column(Float, nullable=False)
 

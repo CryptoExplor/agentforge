@@ -5,6 +5,7 @@ import anyio
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
 
+from . import clock
 from .admission import AdmissionDenied, consume_ingress
 from .settings import settings
 
@@ -32,6 +33,13 @@ class RequestSecurityMiddleware:
             self._limiter.release()
 
     async def _handle_http(self, scope, receive, send):
+        # Authoritative receipt time, stamped before the body is read so every
+        # downstream lease, expiry and deadline is anchored to the moment the
+        # server took responsibility for the request (Grok roadmap 1.4). A
+        # client clock is never consulted here or anywhere else. Endpoints read
+        # it back through request.state.received_at.
+        clock.stamp_scope(scope)
+
         async def reject(status, detail, headers=None):
             response = JSONResponse({"detail": detail}, status_code=status, headers={
                 "Cache-Control": "no-store", **(headers or {}),
@@ -95,8 +103,17 @@ class RequestSecurityMiddleware:
         async def safe_send(message):
             if message["type"] == "http.response.start" and scope["path"].startswith("/api/v1/"):
                 message = dict(message)
-                message["headers"] = [(k, v) for k, v in message.get("headers", []) if k.lower() != b"cache-control"]
+                message["headers"] = [
+                    (k, v) for k, v in message.get("headers", [])
+                    if k.lower() not in {b"cache-control", b"x-server-timestamp"}
+                ]
                 message["headers"].append((b"cache-control", b"no-store"))
+                # Authoritative server time, so an honest client can measure its
+                # own drift against the tolerance instead of guessing. It is a
+                # diagnostic: nothing server-side ever reads it back.
+                message["headers"].append(
+                    (b"x-server-timestamp", f"{clock.server_now():.6f}".encode("ascii"))
+                )
             await send(message)
 
         await self.app(scope, replay_receive, safe_send)

@@ -25,6 +25,8 @@ from .admission import AdmissionDenied, consume_authenticated, validate_security
 from .middleware import MAX_BODY_BYTES, RequestSecurityMiddleware
 from . import operators as operator_registry
 from .validators.result_schema import UnsafeSchema, check_result_schema
+from . import clock
+from .clock import ClockUnavailable
 from . import db as database
 from .crypto import (
     canonical_json,
@@ -73,16 +75,20 @@ from .services import (
     can_execute,
     capability_names,
     complete_idempotency,
+    deadline_passed,
     derive_activity_eligibility,
+    dispute_window_closed,
     independence_failures,
     escrow_settle,
     fund_task,
     guard_active_claim,
+    lease_expiry,
     mark_task_deadline_expired,
     new_id,
     now,
     queue_outbox,
     reap_expired_claims,
+    received_at_of,
     reputation_for,
     required_capability_names,
     settle_escrow,
@@ -102,6 +108,23 @@ MAX_LIST_BYTES = 4_000_000
 
 def http_error(status_code: int, detail: str) -> HTTPException:
     return HTTPException(status_code=status_code, detail=detail)
+
+
+def server_deadline_reference(db: Session, deadline: float | None) -> float | None:
+    """Authoritative reference instant for a client-declared absolute deadline.
+
+    Returns ``None`` when the task has no deadline (nothing to evaluate, no
+    database round trip). Otherwise the value is the *database* server clock,
+    cross-checked against the API host clock: if the two cannot be shown to
+    agree, the request fails closed with 503 instead of settling a deadline on
+    an ambiguous clock. A client clock is never a candidate here.
+    """
+    if deadline is None:
+        return None
+    try:
+        return clock.deadline_reference(db)
+    except ClockUnavailable as exc:
+        raise http_error(503, "server clock is not synchronized") from exc
 
 
 @asynccontextmanager
@@ -142,8 +165,16 @@ def create_app() -> FastAPI:
         }
 
     @app.get("/health")
-    def health():
-        return {"status": "ok", "service": "agentforge", "version": "0.1.0"}
+    def health(db: Session = Depends(get_db)):
+        # Clock diagnostics are part of readiness: an operator must be able to see
+        # the authoritative time source and how far the database clock is from the
+        # API host clock without needing a signed request.
+        return {
+            "status": "ok",
+            "service": "agentforge",
+            "version": "0.1.0",
+            "clock": clock.clock_status(db),
+        }
 
     async def authenticate(
         request: Request,
@@ -169,14 +200,25 @@ def create_app() -> FastAPI:
         if not agent or agent.status != "active":
             raise http_error(401, "unknown or inactive agent")
 
+        # Authoritative receipt time, stamped by the ingress middleware from the
+        # server's own monotonic clock before this handler ran. It is the
+        # reference for the drift window below and the anchor for every lease,
+        # expiry and deadline this request may create (Grok roadmap 1.4).
+        received_at = received_at_of(request)
+        request.state.received_at = received_at
+
         try:
             timestamp_value = float(timestamp)
         except (TypeError, ValueError):
             raise http_error(401, "invalid request timestamp")
         if not math.isfinite(timestamp_value):
             raise http_error(401, "invalid request timestamp")
-        if abs(now() - timestamp_value) > settings.request_clock_skew_seconds:
-            raise http_error(401, "request timestamp outside allowed clock skew")
+        # Strict clock-drift tolerance, measured against the server clock. A
+        # stale request cannot be replayed later and a futuristic one cannot
+        # pre-date a lease it has not earned. The client timestamp is only ever
+        # compared here: it is never stored as, or added to, a server deadline.
+        if abs(clock.drift_seconds(timestamp_value, received_at)) > settings.request_clock_skew_seconds:
+            raise http_error(401, "client clock drift exceeds tolerance")
 
         raw_body = await request.body()
         message = request_signing_bytes(
@@ -645,7 +687,9 @@ def create_app() -> FastAPI:
         validate_task_inputs(body)
 
         task_id = new_id("T")
-        created = now()
+        # Server receipt time, not a clock read somewhere later in the handler:
+        # the task's own timestamps are anchored the same way its claims are.
+        created = received_at_of(request)
         required = list(dict.fromkeys(body.required_capabilities))
         provenance = body.demand_provenance.model_dump(mode="json")
         provenance["reported_level"] = provenance.get("level", 0)
@@ -931,7 +975,7 @@ def create_app() -> FastAPI:
             raise http_error(404, "task not found")
         if task.status not in {"OPEN", "FUNDED"}:
             raise http_error(409, f"task is not claimable in state {task.status}")
-        if task.deadline and task.deadline <= now():
+        if deadline_passed(db, task.deadline, reference=server_deadline_reference(db, task.deadline)):
             discard_idempotency(request, db)
             mark_task_deadline_expired(db, task)
             raise http_error(409, "task deadline has passed")
@@ -944,23 +988,28 @@ def create_app() -> FastAPI:
             raise http_error(429, "active claim limit reached")
 
         claim_id = new_id("C")
-        created = now()
+        # The lease starts at the server's own receipt time for this request and
+        # nowhere else: not the signed X-Agent-Timestamp, not a body field, not a
+        # later clock read. An agent whose clock runs fast cannot buy itself a
+        # longer execution window, and a slow clock cannot shorten one either.
+        received = received_at_of(request)
         claim = Claim(
             id=claim_id,
             task_id=task.id,
             executor_did=did,
             attempt=1,
             status="ACTIVE",
-            lease_expires_at=created + CLAIM_LEASE_SECONDS,
-            heartbeat_at=created,
-            created_at=created,
-            updated_at=created,
+            lease_expires_at=lease_expiry(received, CLAIM_LEASE_SECONDS),
+            heartbeat_at=received,
+            received_at=received,
+            created_at=received,
+            updated_at=received,
         )
         db.add(claim)
         task.status = "CLAIMED"
         task.claim_id = claim.id
         task.state_version += 1
-        task.updated_at = created
+        task.updated_at = received
         add_audit(db, actor_did=did, kind="TASK_CLAIMED", aggregate_type="task", aggregate_id=task.id, payload={"claim_id": claim.id})
         queue_request_outbox(request, db, kind="TASK_CLAIMED", aggregate_id=task.id, payload={"task_id": task.id, "claim_id": claim.id, "executor_did": did})
         response_body = {
@@ -969,6 +1018,7 @@ def create_app() -> FastAPI:
             "executor_did": did,
             "status": claim.status,
             "lease_expires_at": claim.lease_expires_at,
+            "received_at": claim.received_at,
         }
         finish_idempotency(request, response_body)
         try:
@@ -990,14 +1040,23 @@ def create_app() -> FastAPI:
         if not guard_active_claim(db, claim):
             raise http_error(409, "claim is no longer active")
         task = db.get(Task, claim.task_id, populate_existing=True)
-        if task and task.deadline and task.deadline <= now():
+        if task and deadline_passed(db, task.deadline, reference=server_deadline_reference(db, task.deadline)):
             discard_idempotency(request, db)
             mark_task_deadline_expired(db, task, claim)
             raise http_error(409, "task deadline has passed")
-        claim.heartbeat_at = now()
-        claim.lease_expires_at = claim.heartbeat_at + CLAIM_LEASE_SECONDS
-        claim.updated_at = claim.heartbeat_at
-        response_body = {"claim_id": claim.id, "lease_expires_at": claim.lease_expires_at}
+        # A heartbeat extends the lease from the server's receipt time for this
+        # request only, so repeated heartbeats cannot accumulate extra time and a
+        # forged client timestamp cannot move the expiry at all.
+        received = received_at_of(request)
+        claim.heartbeat_at = received
+        claim.lease_expires_at = lease_expiry(received, CLAIM_LEASE_SECONDS)
+        claim.received_at = received
+        claim.updated_at = received
+        response_body = {
+            "claim_id": claim.id,
+            "lease_expires_at": claim.lease_expires_at,
+            "received_at": claim.received_at,
+        }
         finish_idempotency(request, response_body)
         db.commit()
         return response_body
@@ -1022,7 +1081,7 @@ def create_app() -> FastAPI:
         if not guard_active_claim(db, claim):
             raise http_error(409, "claim is no longer active")
         db.refresh(task)
-        if task.deadline and task.deadline <= now():
+        if deadline_passed(db, task.deadline, reference=server_deadline_reference(db, task.deadline)):
             discard_idempotency(request, db)
             mark_task_deadline_expired(db, task, claim)
             raise http_error(409, "task deadline has passed")
@@ -1032,7 +1091,9 @@ def create_app() -> FastAPI:
         except ProviderUnavailable as exc:
             raise http_error(503, str(exc))
 
-        timestamp = now()
+        # Server receipt time, taken before the provider call: the lease is never
+        # extended by however long an inference round-trip happened to take.
+        timestamp = received_at_of(request)
         session = InferenceSession(
             id=session_data.id,
             task_id=task.id,
@@ -1048,7 +1109,8 @@ def create_app() -> FastAPI:
         db.add(session)
         task.status = "EXECUTING"
         claim.heartbeat_at = timestamp
-        claim.lease_expires_at = timestamp + CLAIM_LEASE_SECONDS
+        claim.lease_expires_at = lease_expiry(timestamp, CLAIM_LEASE_SECONDS)
+        claim.received_at = timestamp
         claim.updated_at = timestamp
         add_audit(db, actor_did=did, kind="INFERENCE_CREATED", aggregate_type="inference", aggregate_id=session.id, payload={"task_id": task.id, "provider": session.provider})
         response_body = {
@@ -1194,7 +1256,11 @@ def create_app() -> FastAPI:
         if not guard_active_claim(db, claim):
             raise http_error(409, "claim is no longer active")
         db.refresh(task)
-        if task.deadline and task.deadline <= now():
+        # The submission deadline is decided by the server, against database
+        # server time: never by the executor's clock and never by the
+        # ``created_at`` it declares inside the proof.
+        received = received_at_of(request)
+        if deadline_passed(db, task.deadline, reference=server_deadline_reference(db, task.deadline)):
             discard_idempotency(request, db)
             mark_task_deadline_expired(db, task, claim)
             raise http_error(409, "task deadline has passed")
@@ -1206,7 +1272,12 @@ def create_app() -> FastAPI:
             if not session or session.task_id != task.id or session.executor_did != did:
                 raise http_error(400, f"invalid inference session: {session_id}")
 
-        created_at = body.created_at or now()
+        # ``created_at`` stays the executor-declared instant inside the signed
+        # proof (changing it would break every existing proof signature), but it
+        # no longer decides anything: ``received_at`` is the server's own receipt
+        # time and is what the deadline checks and the deterministic validator
+        # compare against.
+        created_at = body.created_at or received
         if task.deadline and created_at > task.deadline:
             raise http_error(409, "submission is after the task deadline")
         result_hash = sha256_json(body.result)
@@ -1239,8 +1310,9 @@ def create_app() -> FastAPI:
             result_hash=result_hash,
             proof_hash=sha256_json(proof),
             status="SUBMITTED",
+            received_at=received,
             created_at=created_at,
-            updated_at=now(),
+            updated_at=received,
         )
         db.add(submission)
         for session_id in body.inference_session_ids:
@@ -1587,6 +1659,15 @@ def create_app() -> FastAPI:
             raise http_error(403, "only requester or executor may open this dispute")
         if not guard_pending_submission(db, submission):
             raise http_error(409, "submission is already terminal")
+        # Dispute window on server time (Grok roadmap 1.4). A submission stays
+        # disputable while it is pending; once the task deadline has passed only
+        # the configured grace period remains, so escrow cannot be frozen
+        # indefinitely on a long-expired task. Evaluated against database server
+        # time: neither the disputer's clock nor a declared ``created_at`` can
+        # hold the window open.
+        received = received_at_of(request)
+        if dispute_window_closed(db, task, reference=server_deadline_reference(db, task.deadline)):
+            raise http_error(409, "dispute window has closed")
         if db.get(Dispute, body.dispute_id):
             raise http_error(409, "dispute ID already exists")
         existing_open_dispute = db.scalar(
@@ -1604,7 +1685,9 @@ def create_app() -> FastAPI:
             reason=body.reason,
             additional_evidence=body.additional_evidence,
             status="OPEN",
-            created_at=now(),
+            # Server receipt time: the audit trail for a dispute window is
+            # anchored to the server clock, never to the disputer's clock.
+            created_at=received,
         )
         db.add(dispute)
         submission.status = "DISPUTED"
