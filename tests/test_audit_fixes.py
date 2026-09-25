@@ -8,7 +8,7 @@ from urllib.parse import quote
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from agentforge_sdk.client import AgentIdentity
@@ -647,6 +647,32 @@ def test_authentication_rejects_missing_idempotency_stale_and_bad_signatures(cli
         "Idempotency-Key": "bad-signature",
     }
     assert client.post("/api/v1/tasks", content=raw, headers=bad_headers).status_code == 401
+
+
+def test_authentication_rejects_a_replayed_request_nonce(client):
+    """A verified nonce is single-use, so a captured request cannot be replayed.
+
+    The replay deliberately carries a *fresh* Idempotency-Key: it must be the
+    consumed nonce that rejects it, not an idempotency replay returning the
+    cached response. The nonce is consumed before any business logic runs, so
+    the second request creates no additional task either.
+    """
+    identity = AgentIdentity.generate()
+    register(client, identity)
+    body = task_payload()
+    nonce = uuid.uuid4().hex
+
+    first = signed_request(client, identity, "POST", "/api/v1/tasks", body, nonce=nonce)
+    assert first.status_code == 200, first.text
+
+    replay = signed_request(
+        client, identity, "POST", "/api/v1/tasks", body,
+        nonce=nonce, key=f"idem-{uuid.uuid4().hex}",
+    )
+    assert replay.status_code == 401, replay.text
+    assert replay.json()["detail"] == "request nonce has already been used"
+    with db.SessionLocal() as session:
+        assert session.scalar(select(func.count()).select_from(Task)) == 1
 
 
 def test_production_does_not_auto_create_sqlite_schema(tmp_path, monkeypatch):

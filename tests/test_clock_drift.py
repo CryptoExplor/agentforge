@@ -468,6 +468,30 @@ def test_back_dated_created_at_cannot_beat_the_server_deadline(client):
         assert session.get(Task, task["id"]).status == "EXPIRED"
 
 
+def test_expired_task_cannot_be_claimed_at_all(client):
+    """The deadline is enforced at claim time, not only at submission time.
+
+    The submission-side check above is necessary but not sufficient: an expired
+    task must never be claimable in the first place, otherwise an executor could
+    take a lease on work it can never settle and the escrow would stay reserved.
+    The task is created without a deadline and the deadline is set afterwards in
+    the database, so the boundary is controlled rather than raced.
+    """
+    poster, executor = two_agents(client)
+    task = create_task(client, poster)
+    set_task_deadline(task["id"], clock.server_now() - 10)
+
+    response = signed_request(
+        client, executor, "POST", f"/api/v1/tasks/{task['id']}/claim", {}
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "task deadline has passed"
+    with db.SessionLocal() as session:
+        # No lease was issued and the task did not stay open.
+        assert session.query(Claim).count() == 0
+        assert session.get(Task, task["id"]).status == "EXPIRED"
+
+
 @pytest.mark.parametrize("received_at,expected", [(-100.0, "PASS"), (100.0, "FAIL")])
 def test_deterministic_deadline_check_uses_received_at_not_the_declared_time(received_at, expected):
     """A back-dated proof cannot make a late submission look early."""
