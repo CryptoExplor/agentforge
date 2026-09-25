@@ -100,6 +100,21 @@ def stored_claim(claim_id: str) -> Claim:
         return claim
 
 
+def set_task_deadline(task_id: str, deadline: float) -> None:
+    """Move a task's deadline directly in the database, on server time.
+
+    Deadline tests create the task with **no** deadline and set it afterwards,
+    so the boundary is a fact the test controls rather than a race against how
+    long registration, task creation, claiming and submitting happened to take
+    under full-suite load. A task created with ``deadline = now + 2`` expires
+    mid-setup on a slow runner and fails the request being tested.
+    """
+    with db.SessionLocal() as session:
+        task = session.get(Task, task_id)
+        task.deadline = deadline
+        session.commit()
+
+
 def two_agents(client):
     poster, executor = AgentIdentity.generate(), AgentIdentity.generate()
     register(client, poster)
@@ -435,9 +450,12 @@ def test_submission_records_the_server_receipt_time(client):
 
 def test_back_dated_created_at_cannot_beat_the_server_deadline(client):
     poster, executor = two_agents(client)
-    task = create_task(client, poster, task_payload(deadline=time.time() + 2))
+    # No deadline while the claim is taken: setup latency can never expire the
+    # task underneath the request being tested.
+    task = create_task(client, poster)
     claim_task(client, executor, task)
-    time.sleep(2.2)  # the deadline passes on the server's clock
+    # Deadline deterministically in the past — no sleeping, no wall-clock race.
+    set_task_deadline(task["id"], clock.server_now() - 10)
 
     payload = submit_payload(client, task, executor, created_at=time.time() - 600)
     response = signed_request(
@@ -480,22 +498,30 @@ def test_deterministic_deadline_check_uses_received_at_not_the_declared_time(rec
 
 def test_dispute_window_is_evaluated_on_server_time(client, monkeypatch):
     poster, executor = two_agents(client)
-    task = create_task(client, poster, task_payload(deadline=time.time() + 2))
+    # Create with no deadline so registration, task creation, claim and
+    # submission can take as long as the runner needs; the deadline that closes
+    # the window is set in the database afterwards.
+    task = create_task(client, poster)
     claim_task(client, executor, task)
     payload = submit_payload(client, task, executor)
     assert signed_request(
         client, executor, "POST", f"/api/v1/tasks/{task['id']}/submissions", payload
     ).status_code == 200
 
+    # Deadline in the past plus a zero grace period closes the window
+    # deterministically — no sleeping, no dependence on setup duration.
+    set_task_deadline(task["id"], clock.server_now() - 10)
     monkeypatch.setattr(settings, "dispute_window_seconds", 0)
-    time.sleep(2.2)  # deadline passes; a zero grace period closes the window
     dispute = {
         "dispute_id": f"D_{uuid.uuid4().hex}",
         "reason": "The acceptance interpretation needs an independent review.",
         "additional_evidence": [],
     }
+    # A client clock running slow (inside the tolerance) claims less time has
+    # passed, i.e. that the window should still be open. The server disagrees.
     closed = signed_request(
-        client, poster, "POST", f"/api/v1/submissions/{payload['submission_id']}/disputes", dispute
+        client, poster, "POST", f"/api/v1/submissions/{payload['submission_id']}/disputes",
+        dispute, timestamp=time.time() - 58,
     )
     assert closed.status_code == 409
     assert closed.json()["detail"] == "dispute window has closed"
@@ -505,22 +531,27 @@ def test_dispute_window_is_evaluated_on_server_time(client, monkeypatch):
 
 def test_dispute_inside_the_window_still_opens(client, monkeypatch):
     poster, executor = two_agents(client)
-    task = create_task(client, poster, task_payload(deadline=time.time() + 2))
+    task = create_task(client, poster)
     claim_task(client, executor, task)
     payload = submit_payload(client, task, executor)
     assert signed_request(
         client, executor, "POST", f"/api/v1/tasks/{task['id']}/submissions", payload
     ).status_code == 200
 
+    # Same past deadline as the closed case; only the grace period differs, so
+    # the pair isolates the window itself rather than elapsed wall time.
+    set_task_deadline(task["id"], clock.server_now() - 10)
     monkeypatch.setattr(settings, "dispute_window_seconds", 3600)
-    time.sleep(2.2)
     dispute = {
         "dispute_id": f"D_{uuid.uuid4().hex}",
         "reason": "The acceptance interpretation needs an independent review.",
         "additional_evidence": [],
     }
+    # A client clock running fast claims *more* time has passed, i.e. that the
+    # window should be closed. The server's own clock says otherwise.
     opened = signed_request(
-        client, poster, "POST", f"/api/v1/submissions/{payload['submission_id']}/disputes", dispute
+        client, poster, "POST", f"/api/v1/submissions/{payload['submission_id']}/disputes",
+        dispute, timestamp=time.time() + 58,
     )
     assert opened.status_code == 200, opened.text
     with db.SessionLocal() as session:
