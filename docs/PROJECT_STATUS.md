@@ -68,6 +68,20 @@ Implemented in this review revision:
   proof but no longer decides anything. Alembic head moves to `b0c9d8e7f6a5`
   (`claims.received_at`, `submissions.received_at`, backfilled from
   `created_at`). See [server time and clock drift](SERVER_TIME_AND_CLOCK_DRIFT.md).
+- Phase 1.5 modular-monolith kernel: `app.py` was decomposed from 1,821 lines
+  into a 103-line composition root plus seven domain routers under
+  `server/agentforge_server/routes/` (agents, tasks, claims, submissions,
+  validations, disputes, system), with cross-domain request plumbing in
+  `routes/_shared.py`. **No API surface changed**: all 23 OpenAPI paths, every
+  route URL, request schema, response envelope, error code and `operationId` are
+  byte-identical, and no test was modified. Router mount order is defined once in
+  `routes/__init__.py` because Starlette matches in registration order — the one
+  order-sensitive pair in the API (`/api/v1/agents/search` before
+  `/api/v1/agents/{did}`) stays inside `agents.py`. Five names
+  (`MAX_LIST_BYTES`, `can_execute`, `guard_active_claim`,
+  `guard_pending_submission`, `queue_outbox`) are read through the `app` module
+  at call time rather than imported by value, because the regression suites
+  monkeypatch them there to prove the API actually consults them.
 
 See [verification and audit findings](AUDIT_VERIFICATION.md) for exact test counts,
 commands, dependency evidence and limitations. Technical controls live in
