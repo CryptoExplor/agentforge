@@ -152,14 +152,18 @@ This is implementation-side evidence, not independent review or merge approval.
 Scope: authoritative monotonic-anchored server time, `received_at` on claims and
 submissions, the tightened 60-second signed-request drift window, lease anchoring,
 submission-deadline and dispute-window decisions on database server time, and the
-fail-closed clock-divergence guard. Python 3.11, disposable SQLite test data only.
+fail-closed clock-divergence guard. Python 3.11, disposable test data only, run on
+both SQLite and native PostgreSQL 16.2.
 
 | Check | Observed result |
 |---|---|
-| Full default suite | **367 passed, 3 skipped**, 1 dependency warning, 64.19s |
+| Full default suite (SQLite) | **367 passed, 3 skipped**, 1 dependency warning, 64.19s |
 | Pre-existing suite (before this change) | **313 passed, 3 skipped** — unchanged; no existing test was modified to fit the feature |
 | Repeated full-suite runs (stability) | 3 consecutive runs green (360/360/367 as tests were added), 0 failures |
-| `tests/test_clock_drift.py` | **54 passed**, 17.27s |
+| `tests/test_clock_drift.py` (SQLite) | **54 passed**, 17.27s |
+| **PostgreSQL 16.2**: CI-selected suites + `tests/test_clock_drift.py` | **249 passed, 0 skipped**, 49.74s — the three PostgreSQL-only cases that skip on SQLite ran, and the new clock suite passed on PostgreSQL |
+| **PostgreSQL 16.2**: database server clock | `EXTRACT(epoch FROM now())` renders as expected and returns a `Decimal` the reader converts; host/database delta 0.052 s, inside the 5 s tolerance |
+| **PostgreSQL 16.2**: Alembic `upgrade head → downgrade → upgrade head` with live rows | head `b0c9d8e7f6a5`; backfill claim `4242.25 → 4242.25`, submission `777.5 → 777.5`; downgrade drops both columns and preserves the rows; `verify_schema(require_migrations=True)` OK |
 | `scripts/check_contracts.py` | `SCHEMAS_OK: 7` (packaged resources match), `OPENAPI_MATCH: 23 paths`, `MIGRATION_HEAD_MATCH: b0c9d8e7f6a5` |
 | Alembic SQLite `upgrade head → downgrade base → upgrade head` | `b0c9d8e7f6a5 (head)` |
 | Alembic `upgrade --sql` against `postgresql+psycopg` | `ALTER TABLE claims ADD COLUMN received_at FLOAT DEFAULT '0' NOT NULL;` and the same for `submissions`, plus the `created_at` backfill (no SQLite-specific SQL) |
@@ -189,10 +193,26 @@ claim guard for a wider field. Second, two independent reads of the database clo
 can differ by up to ~1 ms, so clock-equality assertions use a realistic tolerance
 rather than exact equality.
 
-No PostgreSQL server was available in this sandbox, so the migration was verified
-locally by SQLite upgrade/downgrade, by backfill inspection and by PostgreSQL
-offline SQL generation only. This is implementation-side evidence, not independent
-review, merge approval or a capacity measurement.
+### PostgreSQL provenance for this phase
+
+The local PostgreSQL server was native **16.2** from test-only `pgserver==0.1.4`
+(the same approach recorded in
+[PostgreSQL and migration provenance](#postgresql-and-migration-provenance)), not
+a project or runtime dependency, with `psycopg[binary]==3.3.6` as the driver. It
+used a private Unix socket under `/tmp`, a disposable data directory, and the
+repository's existing random-schema isolation fixture; the server stopped cleanly
+afterwards. This is not the maintained `postgres:16-alpine` image CI selects, and
+it is **not recommended for production**.
+
+Unlike the Phase 1.1 record, the PostgreSQL path here was executed locally rather
+than only inferred from offline SQL generation: the dialect-specific
+`database_now()` expression, the fail-closed clock-divergence guard, the
+submission-deadline and dispute-window decisions and the migration round trip all
+ran against a real server. CI remains the authoritative gate for the maintained
+image.
+
+This is implementation-side evidence, not independent review, merge approval or a
+capacity measurement.
 
 ## Reproduction commands
 
