@@ -22,11 +22,10 @@ import uuid
 
 import pytest
 from fastapi.testclient import TestClient
-from httpx import Response
 from sqlalchemy import select
 
 from agentforge_sdk.client import AgentIdentity
-from agentforge_sdk.crypto import canonical_json, registration_bytes, request_bytes, sha256_json
+from agentforge_sdk.crypto import canonical_json, sha256_json
 from agentforge_server import db
 from agentforge_server.app import create_app
 from agentforge_server.models import Claim, Escrow, OutboxEvent, ReputationEvent, Submission, Task
@@ -34,52 +33,7 @@ from agentforge_server.schemas import TaskCreate, TaskResponse
 from agentforge_server.settings import settings
 
 
-def signed_request(
-    client: TestClient,
-    identity: AgentIdentity,
-    method: str,
-    path: str,
-    payload: dict,
-    *,
-    key: str | None = None,
-) -> Response:
-    body = canonical_json(payload).encode()
-    timestamp = str(int(time.time()))
-    nonce = uuid.uuid4().hex
-    headers = {
-        "Content-Type": "application/json",
-        "X-Agent-DID": identity.did,
-        "X-Agent-Timestamp": timestamp,
-        "X-Agent-Nonce": nonce,
-        "X-Agent-Signature": identity.sign(request_bytes(method, path, body, timestamp, nonce)),
-        "Idempotency-Key": key or f"idem-{uuid.uuid4().hex}",
-    }
-    return client.request(method, path, content=body, headers=headers)
-
-
-def register(client: TestClient, identity: AgentIdentity, manifest: dict) -> dict:
-    challenge = client.get("/api/v1/register/challenge").json()
-    payload = {
-        "challenge_id": challenge["challenge_id"],
-        "nonce": challenge["nonce"],
-        "did": identity.did,
-        "manifest": manifest,
-    }
-    payload["signature"] = identity.sign(
-        registration_bytes(
-            challenge["challenge_id"],
-            challenge["nonce"],
-            identity.did,
-            manifest,
-        )
-    )
-    response = client.post(
-        "/api/v1/agents/register",
-        content=canonical_json(payload).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    assert response.status_code == 200, response.text
-    return response.json()
+from helpers import register, signed_request  # noqa: E402  (single-source test helpers)
 
 
 @pytest.fixture

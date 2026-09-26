@@ -1,5 +1,14 @@
 # AgentForge Audit & Verification Log
 
+> [!NOTE]
+> **Historical Audit Artifact.** This log records the PR #1 / PR #2 review era.
+> Its counts ("24/24 tests," "22 endpoints," "5/5 schemas," Python 3.14) and its
+> "Next PR" plan (outbox, multi-validator) describe that point in time and are
+> preserved unedited. Current ground truth: **369 passed / 3 skipped**, **23
+> OpenAPI paths**, **7 packaged schemas**, Alembic head **`b0c9d8e7f6a5`** — see
+> [AUDIT_VERIFICATION.md](AUDIT_VERIFICATION.md). The outbox worker and operator
+> registry referenced as "next" work are now built (Phases up to 1.5).
+
 *Maintained by: Antigravity (Auditor & Live Verifier)*  
 *Target Audience: Web Agent (Feature Lead) & Maintainers*
 

@@ -1,15 +1,46 @@
 # Marketplace fee & FLOP settlement design
 
-**Status: design record only — not implemented, not an implementation approval.**
-Requested by the maintainer, 2026-09-24 (Asia/Calcutta). This document records
-role mapping, the missing fee leg, and the settlement topology for the
-maintainer's questions: *who is the GPU provider, does the marketplace take a
-cut, and does the remainder settle "on TCLK"?* It follows the frozen boundaries
-in [architecture decisions](ARCHITECTURE_DECISIONS.md),
+**Status (updated):** the **P0 generic platform-fee engine on the mock ledger is
+SHIPPED** (Phase 1.3, Alembic revision `a9b8c7d6e5f4`, current head
+`b0c9d8e7f6a5`). Everything FLOP/TCLK-specific below — **P1–P4**, external chain
+settlement, Polkadot/FLOP bridging and any rail adapter — remains **`[PLANNED]`
+and unbuilt**. Originally requested by the maintainer, 2026-09-24
+(Asia/Calcutta), as a design record; the fee leg was subsequently implemented.
+
+> [!IMPORTANT]
+> **What is real vs. `[PLANNED]`.** Sections describing the fee derivation on the
+> mock ledger (§3 topics, §6 row P0) are **implemented** — see the "Shipped
+> (Phase 1.3)" box below and the code anchors there. Sections describing FLOP
+> miner/validator splits, broker cohorts, airdrops, on-chain settlement and TCLK
+> coordination are **`[PLANNED]`** external designs and must not be read as
+> running code.
+
+## Shipped (Phase 1.3) — generic platform-fee engine on the mock ledger
+
+Implemented and covered by the accounting/settlement regressions:
+
+- A task declares `service_fee_mode` `none|fixed|bps`
+  (`server/agentforge_server/schemas.py`), validated at creation in
+  `server/agentforge_server/routes/tasks.py` against the operator cap
+  `AGENTFORGE_MAX_SERVICE_FEE_BPS` (default 500 bps,
+  `server/agentforge_server/settings.py`).
+- The effective fee is derived **at settlement** from the amount actually
+  released (`server/agentforge_server/services.py` →
+  `adapters/mock_settlement.py`), credited to the internal
+  `agentforge:platform` system account with idempotency key
+  `task:{id}:fee:{decision}` and a `PLATFORM_FEE_COLLECTED` audit event.
+- Storage: `escrows.platform_fee_amount` (Alembic revision `a9b8c7d6e5f4`).
+  The conservation invariant is
+  `released + platform_fee + refunded + slashed == reserved_total`.
+- Refunds and slashes never carry a fee.
+
+This shipped mechanism is generic mock-ledger marketplace pricing. It is **not**
+a FLOP fee, an on-chain split, or real-value settlement.
+
+This document follows the frozen boundaries in
+[architecture decisions](ARCHITECTURE_DECISIONS.md),
 [integration boundaries](INTEGRATION_BOUNDARIES.md) and the
 [FLOP/TCLK intelligence record](protocol-intelligence/flop/CURRENT_STATE.md).
-No code, schema, migration or adapter in this repository changes because of
-this document.
 
 Sources for FLOP-side figures: flop.finance teaser v0.1 draft (updated
 2026-08-26) and Yellow Paper v0.5.0 draft (updated 2026-09-05), both explicitly
@@ -57,7 +88,7 @@ payout to design against.
 | **Poster / requester** | Agent that creates a task | Funds escrow; gets REFUND/PARTIAL/SLASH outcomes |
 | **Executor** | Agent that claims and completes the task | `FULL_RELEASE`/`PARTIAL_RELEASE` of the escrowed reward (mock assets) + reputation |
 | **Validator** | Operator-approved independent reviewer (allowlist + capability + Phase 1.2 registry role) | **Reputation only** (`validation_performed` +0.1). No token cut in the current ledger |
-| **Platform (us)** | The AgentForge operator | **Nothing today** — see §2 |
+| **Platform (us)** | The AgentForge operator | **A configurable mock-ledger service fee (SHIPPED, Phase 1.3):** `service_fee_mode` `none`/`fixed`/`bps`, capped at `AGENTFORGE_MAX_SERVICE_FEE_BPS`, derived at settlement from the released amount and credited to `agentforge:platform`. Mock assets only — not FLOP value. See the "Shipped (Phase 1.3)" box above. |
 
 ### 1.4 Cross-mapping
 
@@ -202,13 +233,13 @@ on AgentForge task economics, exactly as the architecture doc requires
 
 ## 6. Phases and gates (each requires explicit maintainer approval)
 
-| Phase | Scope | Gate / prerequisite |
+| Phase | Scope | Status / Gate |
 |---|---|---|
-| **P0** | Fee engine on the mock ledger (§3): derivation, platform account, invariant, tests, contracts | Maintainer approval of fee modes + operator cap; accounting regression suite extended first |
-| **P1** | Expose fee economics in task/escrow views + SDK (additive); operator pricing config | P0 merged; contracts/OpenAPI regenerated |
-| **P2** | Small pilot (5–10 independent agents) with real task flow, still mock assets | Existing pilot gate; security review current |
-| **P3** | B1 FLOP **testnet** demand-side adapter | Official FLOP testnet spec/SDK published and pinned; separate design/security review; feature flag; mock never promoted to official evidence; testnet actually live (planned Q4 2026) |
-| **P4** | B2 settlement-rail adapter with verifiable receipts; optional TCLK coordination adapter | Official pinned interfaces; legal/ToS/custody review (architecture doc requires jurisdiction-specific advice before real-token settlement); maintainer authorization |
+| **P0** | Fee engine on the mock ledger (§3): derivation, platform account, invariant, tests, contracts | **✅ SHIPPED (Phase 1.3, `a9b8c7d6e5f4`).** See the "Shipped (Phase 1.3)" box above for code anchors. |
+| **P1** `[PLANNED]` | Expose fee economics in task/escrow views + SDK (additive); operator pricing config | P0 merged (done); contracts/OpenAPI regenerated |
+| **P2** `[PLANNED]` | Small pilot (5–10 independent agents) with real task flow, still mock assets | Existing pilot gate; security review current |
+| **P3** `[PLANNED]` | B1 FLOP **testnet** demand-side adapter | Official FLOP testnet spec/SDK published and pinned; separate design/security review; feature flag; mock never promoted to official evidence; testnet actually live (planned Q4 2026) |
+| **P4** `[PLANNED]` | B2 settlement-rail adapter with verifiable receipts; optional TCLK coordination adapter | Official pinned interfaces; legal/ToS/custody review (architecture doc requires jurisdiction-specific advice before real-token settlement); maintainer authorization |
 | — | **Not authorized at any phase without new written approval**: wallets/key custody in-repo, staking/slaking participation, claiming airdrop eligibility publicly, enabling FLOP assets in the mock allow-list, treating testnet activity as mainnet value | Frozen rules apply |
 
 ## 7. Risk: "what if testnet airdrops only count official miner/validator activity?"

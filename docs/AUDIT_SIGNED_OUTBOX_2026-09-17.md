@@ -1,5 +1,15 @@
 # Signed-event outbox audit — 2026-09-17
 
+> [!NOTE]
+> **Historical Audit Artifact.** This is a dated audit captured at commit
+> `3986dd16d640830930c8a80a1f5336e78c023f6e`. Findings F1–F6 have since been
+> remediated (see [EVENT_OUTBOX.md](EVENT_OUTBOX.md) and
+> [AUDIT_VERIFICATION.md](AUDIT_VERIFICATION.md)). Its `app.py:NNN` line anchors
+> describe the **pre-Phase-1.5 monolith**; the request-signing/causation code
+> then at `app.py:169-193` now lives in `server/agentforge_server/routes/_shared.py`
+> (with the reaper invocation in `routes/_shared.py` + `services.py`). The dated
+> text below is preserved unedited.
+
 > **Historical evidence.** Current status and test results live in
 > [PROJECT_STATUS.md](PROJECT_STATUS.md) and [AUDIT_VERIFICATION.md](AUDIT_VERIFICATION.md).
 > The checkpoint counts, commit IDs and CI runs below are not current-worktree approval.

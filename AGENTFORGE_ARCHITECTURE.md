@@ -78,6 +78,15 @@ agentforge/
   tests/
 ```
 
+> **Note — this tree is the original target design, not the current on-disk
+> layout.** The implemented server is a flat package at
+> `server/agentforge_server/` with request handlers split across
+> `routes/*.py` (Phase 1.5), settlement in `settlement.py` +
+> `adapters/mock_settlement.py`, validators in `validators/`, and the outbox
+> worker in `worker.py`. There is no `flop_testnet.py`. For the authoritative,
+> file-by-file map of what actually exists, see
+> [`docs/REPOSITORY_MAP.md`](docs/REPOSITORY_MAP.md).
+
 Do not heavily modify `technocore-chat`. Treat its client as an adapter behind `CoordinationAdapter`.
 
 ## 3. MVP scope before the testnet

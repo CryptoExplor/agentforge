@@ -2,7 +2,7 @@
 
 **Reviewed:** 2026-09-17 (Asia/Calcutta)
 
-**Scope:** documentation and future integration requirements, not implementation approval
+**Scope:** `[PLANNED]` — documentation and future integration requirements, not implementation approval. Every FLOP/TCLK chain-settlement and Polkadot/FLOP bridging item in this directory is a design horizon; none is wired into code.
 
 **Evidence:** [source ledger](SOURCES.md) · [parameter snapshot](PARAMETER_SNAPSHOT.json) · [change log](CHANGELOG.md)
 

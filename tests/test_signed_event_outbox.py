@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import threading
 import time
-import uuid
 from pathlib import Path
 
 import httpx
@@ -21,7 +20,7 @@ from jsonschema import Draft202012Validator
 from sqlalchemy import select
 
 from agentforge_sdk.client import AgentIdentity
-from agentforge_sdk.crypto import canonical_json, registration_bytes, request_bytes
+from agentforge_sdk.crypto import canonical_json
 from agentforge_server import db
 from agentforge_server.adapters.technocore import TechnocoreAdapter
 from agentforge_server.app import create_app
@@ -58,6 +57,10 @@ ENVELOPE_SCHEMA = json.loads(
 SCHEMA_VALIDATOR = Draft202012Validator(ENVELOPE_SCHEMA)
 
 
+from helpers import register  # noqa: E402  (single-source test helpers)
+from helpers import signed_request as _signed_request
+
+
 def signed_request(
     client: TestClient,
     identity: AgentIdentity,
@@ -68,41 +71,11 @@ def signed_request(
     key: str | None = None,
     nonce: str | None = None,
 ):
-    body = canonical_json(payload).encode()
-    timestamp = str(int(time.time()))
-    nonce = nonce or uuid.uuid4().hex
-    path_only = path.split("?", 1)[0]
-    headers = {
-        "Content-Type": "application/json",
-        "X-Agent-DID": identity.did,
-        "X-Agent-Timestamp": timestamp,
-        "X-Agent-Nonce": nonce,
-        "X-Agent-Signature": identity.sign(request_bytes(method, path_only, body, timestamp, nonce)),
-        "Idempotency-Key": key or f"idem-{uuid.uuid4().hex}",
-    }
-    response = client.request(method, path, content=body, headers=headers)
-    return response, {"body": body, "timestamp": timestamp, "nonce": nonce, "path": path_only, "method": method}
-
-
-def register(client: TestClient, identity: AgentIdentity):
-    manifest = {"name": "agent", "capabilities": [], "chains": ["base"]}
-    challenge = client.get("/api/v1/register/challenge").json()
-    payload = {
-        "challenge_id": challenge["challenge_id"],
-        "nonce": challenge["nonce"],
-        "did": identity.did,
-        "manifest": manifest,
-    }
-    payload["signature"] = identity.sign(
-        registration_bytes(challenge["challenge_id"], challenge["nonce"], identity.did, manifest)
+    # These tests reconstruct the actor signing bytes from the returned metadata,
+    # so this thin wrapper asks the single-source helper for the meta tuple.
+    return _signed_request(
+        client, identity, method, path, payload, key=key, nonce=nonce, return_meta=True
     )
-    response = client.post(
-        "/api/v1/agents/register",
-        content=canonical_json(payload).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    assert response.status_code == 200, response.text
-    return response.json()
 
 
 def task_body(question: str = "envelope under test") -> dict:

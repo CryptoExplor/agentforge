@@ -217,12 +217,22 @@ Do not add any of the following without an explicit scope reversal:
 
 ## 8. SDK and deployment boundary (2026-09-17 design addendum)
 
+> **Realized in Phase 1.5 (modular-monolith kernel):** the "keep a modular
+> monolith" decision below is now implemented in code. `app.py` is a ≈103-line
+> composition root and the request handlers live in seven domain routers under
+> `server/agentforge_server/routes/` (`agents`, `tasks`, `claims`, `submissions`,
+> `validations`, `disputes`, `system`) with shared plumbing in `routes/_shared.py`
+> and mount order fixed in `routes/__init__.py`. The public HTTP/protocol contract
+> (23 OpenAPI paths) was preserved byte-for-byte. The **SDK** portions of this
+> section (resource wrappers, `client.resources`) remain **`[PLANNED]`**.
+
 Keep a modular monolith and a stable public HTTP/protocol contract. Maintain one
 small standalone Python SDK; extract internals and add resource wrappers only
-in compatible increments after the new security work. Preserve existing flat
-methods/imports. If added, `client.resources` avoids collisions with the existing
-`client.events()` and `client.reputation()` methods. SDKs are optional clients,
-not server dependencies or the only way to implement the protocol.
+in compatible increments after the new security work (SDK wrappers: **`[PLANNED]`**).
+Preserve existing flat methods/imports. If added, `client.resources` avoids
+collisions with the existing `client.events()` and `client.reputation()` methods.
+SDKs are optional clients, not server dependencies or the only way to implement
+the protocol.
 
 Server-side inference, settlement and event-transport adapters remain separate
 from public SDK dependencies. TCLK is coordination, not value settlement. No

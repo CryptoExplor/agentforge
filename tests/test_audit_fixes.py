@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from agentforge_sdk.client import AgentIdentity
-from agentforge_sdk.crypto import canonical_json, registration_bytes, request_bytes, sha256_json
+from agentforge_sdk.crypto import canonical_json, request_bytes, sha256_json
 from agentforge_server import db
 from agentforge_server.app import create_app
 from agentforge_server.models import (
@@ -33,59 +33,7 @@ from agentforge_server.services import escrow_settle, fund_task, new_id, queue_o
 from agentforge_server.settings import settings
 
 
-def signed_request(
-    client: TestClient,
-    identity: AgentIdentity,
-    method: str,
-    path: str,
-    payload: dict,
-    *,
-    key: str | None = None,
-    nonce: str | None = None,
-    signing_path: str | None = None,
-    include_idempotency: bool = True,
-):
-    body = canonical_json(payload).encode()
-    timestamp = str(int(time.time()))
-    nonce = nonce or uuid.uuid4().hex
-    headers = {
-        "Content-Type": "application/json",
-        "X-Agent-DID": identity.did,
-        "X-Agent-Timestamp": timestamp,
-        "X-Agent-Nonce": nonce,
-        "X-Agent-Signature": identity.sign(
-            request_bytes(method, signing_path or path.split("?", 1)[0], body, timestamp, nonce)
-        ),
-    }
-    if include_idempotency:
-        headers["Idempotency-Key"] = key or f"idem-{uuid.uuid4().hex}"
-    return client.request(method, path, content=body, headers=headers)
-
-
-def register(client: TestClient, identity: AgentIdentity, manifest: dict | None = None):
-    manifest = manifest or {"name": "agent", "capabilities": [], "chains": ["base"]}
-    challenge = client.get("/api/v1/register/challenge").json()
-    payload = {
-        "challenge_id": challenge["challenge_id"],
-        "nonce": challenge["nonce"],
-        "did": identity.did,
-        "manifest": manifest,
-    }
-    payload["signature"] = identity.sign(
-        registration_bytes(
-            challenge["challenge_id"],
-            challenge["nonce"],
-            identity.did,
-            manifest,
-        )
-    )
-    response = client.post(
-        "/api/v1/agents/register",
-        content=canonical_json(payload).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    assert response.status_code == 200, response.text
-    return response.json()
+from helpers import register, signed_request  # noqa: E402  (single-source test helpers)
 
 
 @pytest.fixture
