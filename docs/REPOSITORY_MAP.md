@@ -63,8 +63,9 @@ This is the short map for a GitHub reviewer or coding agent.
 | `tests/test_runtime_hardening.py` | Cache budgets, SQL-backed private retrieval and configuration-secret redaction |
 | `tests/test_clock_drift.py` | Clock-skew rejection, server-anchored lease/deadline invariants and concurrency under simulated latency |
 | `tests/test_sdk_security.py` | Private atomic identity persistence and failure cleanup |
+| `tests/test_sdk.py` | Every `AgentForgeClient` method against the live TestClient: full flows, pagination, structured error mapping, drift self-correction |
 | `tests/test_public_exposure.py` | D1–D6 regressions and optional PostgreSQL/migration coverage |
-| `sdk/python/agentforge_sdk/` | Python identity, signing, and API client |
+| `sdk/python/agentforge_sdk/` | Modular Python SDK: `identity.py` (keys/persistence/signing), `errors.py` (structured errors), `transport.py` (signed HTTP, drift calibration, error mapping), `client.py` (facade), `crypto.py` (canonical signing bytes) |
 | `protocol/v1/*.schema.json` | Versioned machine-readable task, proof, agent, escrow, and validation contracts |
 | `protocol/v1/signing.md` | Canonical signing rules, including published event envelopes |
 | `protocol/v1/event-envelope.schema.json` | Legacy event envelope contract (`agentforge-event/1`), unchanged |
