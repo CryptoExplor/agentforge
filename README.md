@@ -21,6 +21,12 @@ This repository is a **pre-testnet MVP**. It includes:
 - SQL-backed public task discovery with keyset-cursor/offset pagination
 - generic marketplace service fee (`none|fixed|bps`, operator-capped) settled exactly on the
   internal mock ledger; refunds and slashes never carry a fee
+- authoritative server time and clock-drift defence: a monotonic-anchored server clock, a
+  per-request `received_at`, a 60-second signed-request drift window and a database-clock
+  cross-check — see [docs/SERVER_TIME_AND_CLOCK_DRIFT.md](docs/SERVER_TIME_AND_CLOCK_DRIFT.md)
+- modular-monolith kernel: `app.py` is a thin composition root and the request handlers live
+  in seven domain routers under `server/agentforge_server/routes/` (agents, tasks, claims,
+  submissions, validations, disputes, system) — the public HTTP contract is unchanged
 - mock ledger/escrow behind a `SettlementProvider` boundary
 - server-derived settlement guardrails: mock provider only, with a `MOCK`/`TEST_CREDIT` asset allow-list
 - Python SDK
@@ -180,4 +186,10 @@ Start with these documents when reviewing or uploading the repository:
 - [`docs/REPOSITORY_MAP.md`](docs/REPOSITORY_MAP.md) — source-of-truth file map
 - [`docs/RELEASE_NOTES.md`](docs/RELEASE_NOTES.md) — archive contents and verification summary
 
-The final local verification passed 52 tests, Python compilation, protocol JSON Schema validation (6 schemas), OpenAPI synchronization, an Alembic SQLite upgrade/downgrade/upgrade round trip, and a clean `worker --once` tick. PostgreSQL still needs an environment with a server/client for integration verification.
+Local verification covers the full pytest suite, Python compilation, protocol JSON Schema
+validation, OpenAPI synchronization (`scripts/check_contracts.py`), an Alembic
+upgrade/downgrade/upgrade round trip and a clean `worker --once` tick. The current
+measured baseline — exact test counts, schema/OpenAPI parity and the Alembic head — is kept
+in the canonical record [`docs/AUDIT_VERIFICATION.md`](docs/AUDIT_VERIFICATION.md) rather
+than duplicated here, so this file cannot drift out of date. PostgreSQL integration runs in
+CI against `postgres:16-alpine`.

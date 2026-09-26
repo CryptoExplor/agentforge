@@ -8,11 +8,15 @@ test counts or historical timelines into another handoff document.
 3. For implementation work: [security controls](docs/SECURITY_REMEDIATION.md),
    [accounting controls](docs/ACCOUNTING_REMEDIATION.md),
    [outbox contract](docs/EVENT_OUTBOX.md), [repository map](docs/REPOSITORY_MAP.md).
+   Shipped feature specs: [task verification strategies](docs/TASK_VERIFICATION_STRATEGIES.md),
+   [operator registry](docs/OPERATOR_REGISTRY.md),
+   [server time & clock drift](docs/SERVER_TIME_AND_CLOCK_DRIFT.md), and the
+   shipped-vs-`[PLANNED]` split in [marketplace fee design](docs/MARKETPLACE_FEE_AND_FLOP_SETTLEMENT_DESIGN.md).
 
 ## Standing workflow
 
-- Work only on the session-assigned branch. This session is
-  `arena/01a0af8f-agentforge`. Preserve existing working-tree changes.
+- Work only on the branch assigned to your current session (do not assume a
+  hard-coded branch name here). Preserve existing working-tree changes.
 - Web agent implements; a separate local/auditing agent reviews and tests;
   **human maintainer alone decides and performs merges**.
 - Never merge/close PRs, self-approve, push `main`, force-push or rewrite shared
