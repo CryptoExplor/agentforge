@@ -57,32 +57,7 @@ def client(tmp_path, monkeypatch):
         yield test_client
 
 
-def signed_request(
-    client: TestClient,
-    identity: AgentIdentity,
-    method: str,
-    path: str,
-    payload: dict,
-    *,
-    timestamp: float | None = None,
-    nonce: str | None = None,
-    key: str | None = None,
-    include_idempotency: bool = True,
-):
-    """Signed request whose client timestamp the test controls exactly."""
-    body = canonical_json(payload).encode()
-    stamp = repr(float(time.time() if timestamp is None else timestamp))
-    nonce = nonce or uuid.uuid4().hex
-    headers = {
-        "Content-Type": "application/json",
-        "X-Agent-DID": identity.did,
-        "X-Agent-Timestamp": stamp,
-        "X-Agent-Nonce": nonce,
-        "X-Agent-Signature": identity.sign(request_bytes(method, path, body, stamp, nonce)),
-    }
-    if include_idempotency:
-        headers["Idempotency-Key"] = key or f"idem-{uuid.uuid4().hex}"
-    return client.request(method, path, content=body, headers=headers)
+from helpers import signed_request  # noqa: E402  (single-source test helpers)
 
 
 def claim_task(client, executor: AgentIdentity, task: dict, **kwargs):

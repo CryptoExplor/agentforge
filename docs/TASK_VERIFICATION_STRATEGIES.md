@@ -1,7 +1,8 @@
 # Task verification strategies and deterministic auto-settlement
 
-**Status:** implemented in the Phase 1.1 review revision (branch `arena/01a0cee1-agentforge`)
+**Status:** implemented — introduced in Phase 1.1 (Alembic revision `e7f8a9b0c1d2`); current Alembic head is **`b0c9d8e7f6a5`** (Phase 1.4)
 **Scope:** who decides a task outcome, and when escrow moves
+**Source modules (post-Phase-1.5):** proof submission + deterministic auto-settlement in `server/agentforge_server/routes/submissions.py`; the peer-review/operator settlement path (`apply_validation`) in `server/agentforge_server/routes/validations.py`; the independent checks in `server/agentforge_server/validators/deterministic.py` (`evaluate_deterministic`); escrow movement in `server/agentforge_server/services.py` → `adapters/mock_settlement.py`.
 **Related:** [`ARCHITECTURE_DECISIONS.md`](ARCHITECTURE_DECISIONS.md), [`SECURITY_REMEDIATION.md`](SECURITY_REMEDIATION.md), [`ACCOUNTING_REMEDIATION.md`](ACCOUNTING_REMEDIATION.md), [`../protocol/v1/task.schema.json`](../protocol/v1/task.schema.json)
 
 ## Why
@@ -99,8 +100,13 @@ the server default is retained so raw SQL inserts and rolling deploys running th
 previous application version stay valid. The statement is portable: PostgreSQL
 receives a plain `ALTER TABLE ... ADD COLUMN`; SQLite uses Alembic's batch table
 copy, which recreates the existing indexes and foreign key.
-`server/agentforge_server/db.py::SCHEMA_REVISION` tracks the new head, and
+`server/agentforge_server/db.py::SCHEMA_REVISION` tracks the head, and
 `scripts/check_contracts.py` fails CI if migration head and code diverge.
+
+> Note: `e7f8a9b0c1d2` was the head *when this phase landed*. Later phases
+> advanced the chain to the current head **`b0c9d8e7f6a5`**
+> (`e7f8a9b0c1d2 → f8a9b0c1d2e3 → a9b8c7d6e5f4 → b0c9d8e7f6a5`); this revision
+> is unchanged by them.
 
 ## How to verify
 

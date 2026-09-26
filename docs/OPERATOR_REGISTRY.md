@@ -3,6 +3,16 @@
 Status: implemented on top of the Phase 1.1 revision (`e7f8a9b0c1d2`); not
 independently reviewed. This document describes what the code enforces today.
 
+**Source modules (post-Phase-1.5):** the authorization decision lives in
+`server/agentforge_server/operators.py`; it is applied by the validation
+handlers in `server/agentforge_server/routes/validations.py`
+(`POST /api/v1/tasks/{task_id}/validations` and
+`POST /api/v1/submissions/{submission_id}/validate`) and
+`server/agentforge_server/routes/disputes.py`
+(`POST /api/v1/disputes/{dispute_id}/resolve`); the SQL task query lives in
+`server/agentforge_server/routes/tasks.py`. Migration `f8a9b0c1d2e3` remains in
+place; the current Alembic head is **`b0c9d8e7f6a5`** (Phase 1.4).
+
 ## 1. Operator registry and role grants (Grok roadmap 1.1)
 
 A declared manifest capability describes what an agent *can* do; it never

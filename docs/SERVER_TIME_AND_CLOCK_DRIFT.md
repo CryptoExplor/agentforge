@@ -2,6 +2,15 @@
 
 **Status: implemented in the server, SDK and tests. Not independently reviewed.**
 
+**Source modules (post-Phase-1.5):** the authoritative clock, `received_at`
+stamping and the database-clock cross-check live in
+`server/agentforge_server/clock.py`; ingress stamping and the signed-request
+drift check live in `server/agentforge_server/routes/_shared.py`; lease anchoring
+is applied by `routes/claims.py` and `routes/submissions.py`; lease-length
+tunables live in the `app.py` composition root. Schema columns
+(`claims.received_at`, `submissions.received_at`) are Alembic head
+**`b0c9d8e7f6a5`** — the current head.
+
 AgentForge treats the **server clock as the only authority for time**. A client
 timestamp is an unauthenticated claim: it can be skewed, replayed or forged, so
 it never starts a lease, extends a lease, or decides whether a submission or

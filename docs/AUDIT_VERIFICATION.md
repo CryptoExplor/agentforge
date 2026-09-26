@@ -214,6 +214,37 @@ image.
 This is implementation-side evidence, not independent review, merge approval or a
 capacity measurement.
 
+## Phase 1.5 verification: modular domain routers
+
+Scope: behaviour-preserving decomposition of the former monolithic `app.py`
+(≈1,821 lines) into a 103-line composition root plus seven domain routers under
+`server/agentforge_server/routes/` (`agents`, `tasks`, `claims`, `submissions`,
+`validations`, `disputes`, `system`) with cross-domain plumbing in
+`routes/_shared.py`. **No API surface changed:** every route URL, request schema,
+response envelope, error code and `operationId` is byte-identical, and mount
+order is fixed once in `routes/__init__.py` (the load-bearing
+`agents/search`-before-`agents/{did}` pair stays inside `agents.py`). The five
+monkeypatch-surface names (`MAX_LIST_BYTES`, `can_execute`, `guard_active_claim`,
+`guard_pending_submission`, `queue_outbox`) are read through the `app` module at
+call time via `routes/_shared.py`. Python 3.11, disposable test data only.
+
+| Check | Observed result |
+|---|---|
+| Full default suite (SQLite) | **369 passed, 3 skipped**, 1 dependency warning |
+| No test modified to fit the change | Confirmed — the router split preserved every existing assertion |
+| `scripts/check_contracts.py` | `SCHEMAS_OK: 7` (packaged resources match), `OPENAPI_MATCH: 23 paths`, `MIGRATION_HEAD_MATCH: b0c9d8e7f6a5` |
+| OpenAPI parity across the split | 23 path items / 24 operations (`GET`+`POST /api/v1/tasks` share a path) plus the unschematized `GET /`; identical to pre-split |
+| Compile (`server sdk tests examples protocol`) | Passed |
+| Alembic head (unchanged by this phase) | `b0c9d8e7f6a5` |
+
+Note: the migration head is unchanged from Phase 1.4 — the decomposition touches
+only code layout, not the schema. Earlier rows in this file that report 254/267/367
+passing tests, 22 OpenAPI paths, or Alembic heads `e7f8a9b0c1d2` / `c4d5e6f7a8b9`
+are **superseded historical evidence** from the phase they were captured in; the
+current ground-truth baseline is the row above (369 / 23 paths / `b0c9d8e7f6a5`).
+
+This is implementation-side evidence, not independent review or merge approval.
+
 ## Reproduction commands
 
 ```sh

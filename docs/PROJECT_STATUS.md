@@ -82,6 +82,14 @@ Implemented in this review revision:
   `guard_pending_submission`, `queue_outbox`) are read through the `app` module
   at call time rather than imported by value, because the regression suites
   monkeypatch them there to prove the API actually consults them.
+  **Verification baseline for this phase: 369 passed, 3 skipped; 23 OpenAPI paths
+  (7 packaged schemas); Alembic head `b0c9d8e7f6a5` (unchanged — layout only).**
+
+**Current ground-truth baseline (supersedes the dated PR/CI snapshot below):**
+`pytest` → **369 passed, 3 skipped**; `scripts/check_contracts.py` →
+`SCHEMAS_OK: 7`, `OPENAPI_MATCH: 23 paths`, `MIGRATION_HEAD_MATCH: b0c9d8e7f6a5`.
+The PR numbers, branch names and commit SHAs in the "Review publication" section
+below are a historical handoff record and are not the current session's head.
 
 See [verification and audit findings](AUDIT_VERIFICATION.md) for exact test counts,
 commands, dependency evidence and limitations. Technical controls live in

@@ -8,9 +8,19 @@ proposals are still unimplemented.
 
 **Date:** 2026-09-17 (Asia/Calcutta)
 **Implementation inspected:** `bd6bf59d6f3bdb8229cd9736ed58bcf680c37920`
-**Status:** design and documentation only. No SDK refactor, security remediation,
+**Status:** `[PLANNED]` — design and documentation only. No SDK refactor,
 new integration, infrastructure provisioning, or deployment is implemented by
 this document. Implementation starts only under a separately scoped request.
+
+> [!NOTE]
+> **Two things below are now out of date relative to the code.** (1) The
+> **server** "modular monolith" was realized in **Phase 1.5**: `app.py` is now a
+> composition root and handlers live under `server/agentforge_server/routes/`, so
+> statements that `app.py` "contains substantial SQL/business logic" or that a
+> future pass must "extract selected `app.py` handlers" are superseded — that
+> extraction is done. (2) The **client SDK** resource-wrapper work
+> (`client.resources`, sub-SDKs, JS/MCP) remains **`[PLANNED]`** and unbuilt.
+> `sdk/python/agentforge_sdk/client.py` is currently ~353 lines.
 
 **Scalability addendum:** [discovery toward 100k+ clients](DISCOVERY_SCALABILITY_PLAN.md)
 records event-assisted discovery, selective routing, privacy, replay/flow-control,
@@ -68,7 +78,7 @@ Current files:
 - `client.py` contains identity generation/load/save/signing, a generic exception,
   synchronous `httpx.Client` transport, request signing, registration, and flat
   resource methods. Responses are primarily dictionaries, not a complete typed
-  model layer. It is roughly 313 lines, not a reason for a giant rewrite.
+  model layer. It is roughly 353 lines, not a reason for a giant rewrite.
 - `crypto.py` implements canonical JSON, hashes, base58/base64url, DID derivation,
   and request/registration signing bytes. It does not import the server.
 - `sdk/python/pyproject.toml`: standalone `agentforge-sdk` 0.1.0, Python >=3.11,
@@ -111,9 +121,10 @@ but generated output still needs review as a public contract.
 - `adapters/technocore.py`: optional signed-event HTTP transport.
 - `outbox.py` and `worker.py` currently reference `TechnocoreAdapter` directly.
   There is no generic `CommunicationAdapter` contract yet.
-- `app.py` contains substantial SQL/business logic as well as routing.
-  Moving all of it into repositories/services is future incremental work, not
-  an accurate description of the current code or a prerequisite for this plan.
+- `app.py` is a composition root only (Phase 1.5). The request handlers and
+  their SQL/business logic live in `server/agentforge_server/routes/*.py` with
+  shared plumbing in `routes/_shared.py`; further extraction into
+  repositories/services is optional future work, not a prerequisite for this plan.
 
 ## 3. Proposed Python package structure
 
@@ -356,7 +367,7 @@ These are proposed work packages, not edits made in the design-only change.
 | Contract hardening | API declarations, `protocol/v1/openapi.json`, signing docs/fixtures, contract checker/tests | Document actual security/response contracts; do not change signing implicitly. |
 | Standalone SDK packaging CI | `.github/workflows/ci.yml`, packaging tests/manifests as needed | Build and install `sdk/python` wheel outside checkout in an environment without server, FastAPI, SQLAlchemy or PostgreSQL dependencies. Current root-wheel check is not this test. |
 | Static documentation publication | `web/`, curated public docs build/output and hosting config, existing llms files | Allowlisted output, verified links; do not publish repository root or claim the API is live. |
-| Later server extraction | Selected `app.py` handlers/services/ports only when justified | Small behavior-preserving changes with concurrency/transaction regression coverage; no blanket repositories layer. |
+| Later server extraction `[PLANNED]` | Selected `routes/*.py` handlers/services/ports only when justified (the router split itself shipped in Phase 1.5) | Small behavior-preserving changes with concurrency/transaction regression coverage; no blanket repositories layer. |
 
 ## 10. Execution order and acceptance gates
 

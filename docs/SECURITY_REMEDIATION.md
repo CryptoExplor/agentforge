@@ -22,8 +22,26 @@ public-launch prohibition or historical evidence.
 | D5 | Register static agent search before dynamic DID route; bounded search and capability aggregation. | Search returns actual agents, preserves DID lookup and enforces limit. |
 | D6 | Reward filter length, finite/nonnegative value and exponent checks return 422, not 500. Also bound monetary/compute exponent before formatting to prevent enormous decimal expansion. | Invalid/NaN/infinite/negative/huge filters; valid decimal/scientific inputs; short exponent-expansion attacks; request-target limit. |
 
-Sources: `server/agentforge_server/{app,admission,middleware,settings,schemas}.py`,
-`validators/{deterministic,result_schema}.py`, `models.py`, `worker.py`.
+Sources (updated for the Phase 1.5 modular decomposition — the D1–D6 request
+handlers moved out of the former monolithic `app.py` into per-domain routers):
+
+- **D1** private-read / validator authorization — `routes/_shared.py`
+  (`authorize_task_read`, the operator/validator gate) applied by
+  `routes/tasks.py`, `routes/submissions.py`, `routes/validations.py` and
+  `routes/disputes.py`; registry logic in `operators.py`.
+- **D2** bounded acceptance-schema subset — `validators/result_schema.py`,
+  enforced at task creation in `routes/tasks.py`.
+- **D3** received-byte / body / header / target limits — `middleware.py`
+  (`RequestSecurityMiddleware`, mounted by the `app.py` composition root).
+- **D4** SQL-atomic shared admission quotas — `admission.py`, `settings.py`,
+  `worker.py` (security-state pruning).
+- **D5** static `agents/search` registered before dynamic `agents/{did}` —
+  `routes/agents.py`, with mount order fixed once in `routes/__init__.py`.
+- **D6** bounded decimal reward-filter parsing (returns `422`) — `routes/tasks.py`
+  (`min_reward` handling) plus `money.py` and `schemas.py`.
+
+Shared: `models.py` (schema), `validators/deterministic.py`. The composition
+root `app.py` now only wires middleware and mounts `routes.DOMAIN_ROUTERS`.
 Tests: `tests/test_public_exposure.py`. Existing positive validator fixtures now
 make an explicit operator grant; they do not weaken the application policy.
 

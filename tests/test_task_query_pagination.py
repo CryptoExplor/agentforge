@@ -8,15 +8,13 @@ exact historical ``{"tasks": [...]}`` response shape.
 from __future__ import annotations
 
 import json
-import time
-import uuid
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import event
 
 from agentforge_sdk.client import AgentIdentity
-from agentforge_sdk.crypto import canonical_json, registration_bytes, request_bytes
+from agentforge_sdk.crypto import canonical_json
 from agentforge_server import db
 from agentforge_server.app import create_app
 from agentforge_server.models import Task
@@ -40,40 +38,18 @@ def client(tmp_path, monkeypatch):
         yield test_client
 
 
-def signed_request(client: TestClient, identity: AgentIdentity, method: str, path: str, payload: dict):
-    body = canonical_json(payload).encode()
-    timestamp = str(int(time.time()))
-    nonce = uuid.uuid4().hex
-    headers = {
-        "Content-Type": "application/json",
-        "X-Agent-DID": identity.did,
-        "X-Agent-Timestamp": timestamp,
-        "X-Agent-Nonce": nonce,
-        "X-Agent-Signature": identity.sign(request_bytes(method, path, body, timestamp, nonce)),
-        "Idempotency-Key": f"idem-{uuid.uuid4().hex}",
-    }
-    return client.request(method, path, content=body, headers=headers)
+from helpers import signed_request  # noqa: E402  (single-source test helpers)
+from helpers import register as _register
 
 
 def register(client: TestClient, identity: AgentIdentity, manifest: dict | None = None) -> dict:
-    manifest = manifest or {"name": "poster", "capabilities": ["research"], "chains": ["base"]}
-    challenge = client.get("/api/v1/register/challenge").json()
-    payload = {
-        "challenge_id": challenge["challenge_id"],
-        "nonce": challenge["nonce"],
-        "did": identity.did,
-        "manifest": manifest,
-    }
-    payload["signature"] = identity.sign(
-        registration_bytes(challenge["challenge_id"], challenge["nonce"], identity.did, manifest)
+    # This suite's posters advertise a ``research`` capability by default; the
+    # signing/handshake logic itself is the single-source helper.
+    return _register(
+        client,
+        identity,
+        manifest or {"name": "poster", "capabilities": ["research"], "chains": ["base"]},
     )
-    response = client.post(
-        "/api/v1/agents/register",
-        content=canonical_json(payload).encode(),
-        headers={"Content-Type": "application/json"},
-    )
-    assert response.status_code == 200, response.text
-    return response.json()
 
 
 def make_task(

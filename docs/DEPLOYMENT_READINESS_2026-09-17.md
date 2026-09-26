@@ -1,5 +1,17 @@
 # Deployment readiness — 2026-09-17
 
+> [!NOTE]
+> **Historical Audit Artifact.** This is a dated, point-in-time review captured at
+> commit `bd6bf59d6f3bdb8229cd9736ed58bcf680c37920`. Its `app.py:NNN` line anchors,
+> "22 documented paths" count and OPEN D1–D6 status describe the code **as it was
+> then** and are deliberately preserved unedited. For current ground truth see
+> [PROJECT_STATUS.md](PROJECT_STATUS.md) and [AUDIT_VERIFICATION.md](AUDIT_VERIFICATION.md).
+> Since then: D1–D6 are remediated; the API exposes **23 OpenAPI paths**; the
+> Alembic head is **`b0c9d8e7f6a5`**; and, after the Phase 1.5 modular
+> decomposition, every request handler referenced below as `app.py:NNN` now lives
+> under `server/agentforge_server/routes/` (`_shared.py`, `agents.py`, `tasks.py`,
+> `claims.py`, `submissions.py`, `validations.py`, `disputes.py`, `system.py`).
+
 **Implementation update:** D1–D6 now have working-tree remediation and regressions;
 see [security remediation / audit handoff](SECURITY_REMEDIATION.md). References
 to OPEN/unimplemented security work below describe the earlier design snapshot.

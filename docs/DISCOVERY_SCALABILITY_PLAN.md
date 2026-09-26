@@ -8,9 +8,18 @@ proposals are still unimplemented.
 
 **Date:** 2026-09-17 (Asia/Calcutta)
 **Implementation inspected:** `bd6bf59d6f3bdb8229cd9736ed58bcf680c37920`
-**Status:** design requirement and proposed interfaces only. No broker, event API,
-SSE/WebSocket endpoint, SDK subscription method, schema, migration, capacity
-benchmark or deployment is implemented by this documentation change.
+**Status:** `[PLANNED]` — design requirement and proposed interfaces only. No
+broker, event API, SSE/WebSocket endpoint, SDK subscription method, schema,
+migration, capacity benchmark or deployment is implemented by this document.
+
+> [!NOTE]
+> The current-behaviour tables below reference the pre-Phase-1.5 monolith by
+> `app.py:NNN` line numbers. Those handlers now live in the domain routers:
+> `GET /api/v1/tasks` and `GET /api/v1/tasks/{task_id}` (and their reaper hook)
+> in `server/agentforge_server/routes/tasks.py`; `GET /api/v1/events` in
+> `server/agentforge_server/routes/system.py`; the outbox payload builders in
+> `server/agentforge_server/services.py`. The proposed discovery projection,
+> broker and subscription designs remain **`[PLANNED]`** and unbuilt.
 
 Read with [SDK architecture](SDK_ARCHITECTURE_PLAN.md),
 [deployment readiness](DEPLOYMENT_READINESS_2026-09-17.md) and
