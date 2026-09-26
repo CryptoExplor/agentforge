@@ -18,9 +18,15 @@ this document. Implementation starts only under a separately scoped request.
 > composition root and handlers live under `server/agentforge_server/routes/`, so
 > statements that `app.py` "contains substantial SQL/business logic" or that a
 > future pass must "extract selected `app.py` handlers" are superseded — that
-> extraction is done. (2) The **client SDK** resource-wrapper work
-> (`client.resources`, sub-SDKs, JS/MCP) remains **`[PLANNED]`** and unbuilt.
-> `sdk/python/agentforge_sdk/client.py` is currently ~353 lines.
+> extraction is done. (2) The **client SDK** layer below is **partly realized**:
+> **Phase 2.1** extracted `identity.py`, `errors.py` (with the structured
+> subclasses of §5.6) and `transport.py` behind the unchanged `client.py`
+> facade, and closed the endpoint-coverage gaps (§4) by adding `capabilities`,
+> `search_agents`, `cancel_task`, `validate_task`, `get_inference_session` and
+> cursor/offset support on `list_tasks` — every legacy import path and flat
+> method still works and the flat facade remains the compatibility contract.
+> The additive `client.resources` namespace, sub-SDKs, JS/MCP and retry design
+> remain **`[PLANNED]`** and unbuilt.
 
 **Scalability addendum:** [discovery toward 100k+ clients](DISCOVERY_SCALABILITY_PLAN.md)
 records event-assisted discovery, selective routing, privacy, replay/flow-control,
@@ -128,6 +134,11 @@ but generated output still needs review as a public contract.
 
 ## 3. Proposed Python package structure
 
+**Implementation update (Phase 2.1):** the first extraction step below is now
+built — `identity.py`, `errors.py` and `transport.py` exist, `client.py` is
+the facade, and `crypto.py` is unchanged. The `resources/` directory and the
+`client.resources` namespace remain planned and unbuilt.
+
 **Target structure, not files created by this decision:**
 
 ```text
@@ -187,6 +198,13 @@ including `from agentforge_sdk.client import AgentIdentity`, retain re-exports.
 The `resources` namespace and private extraction can be staged separately.
 
 ## 4. Core resources and mapping to the real API
+
+**Implementation update (Phase 2.1):** the "No wrapper" gaps in the table are
+closed on the flat facade — `capabilities()`, `search_agents()`,
+`cancel_task()`, `validate_task()` and `get_inference_session()` exist, with
+`search_agents(min_reputation=...)` filtering locally over returned agent
+views because the API exposes no reputation query. The resource namespace
+remains proposed only.
 
 All HTTP paths below are relative to `/api/v1`. They describe existing API
 operations; the resource namespace is proposed. Do not generate fictional

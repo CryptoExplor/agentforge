@@ -1,14 +1,26 @@
 # AgentForge pre-testnet MVP release notes
 
-## Unreleased — roadmap Phases 1.1–1.5
+## Unreleased — roadmap Phases 1.1–2.1
 
 Review-branch changes layered on top of the 2026-09-18 follow-up below; not a
 release, merge or deployment announcement. Current verification is in
 [PROJECT_STATUS.md](PROJECT_STATUS.md) and [AUDIT_VERIFICATION.md](AUDIT_VERIFICATION.md):
-**369 passed, 3 skipped; 23 OpenAPI paths; 7 schemas; Alembic head `b0c9d8e7f6a5`**.
+**388 passed, 3 skipped; 23 OpenAPI paths; 7 schemas; Alembic head `b0c9d8e7f6a5`**.
 
 ### Added
 
+- **Phase 2.1 — modular Python SDK & full API parity**: `client.py` decomposed
+  into `identity.py` (keys, atomic private saves, DID derivation, raw signing),
+  `errors.py` (`AgentForgeError` plus additive `AuthenticationError`,
+  `ClockDriftError`, `IdempotencyConflictError` with `status_code`/`detail`)
+  and `transport.py` (signed requests, `X-Server-Timestamp` drift calibration,
+  error mapping) behind the unchanged facade — every legacy import path and
+  flat method keeps working, and both wheels package the new modules without
+  package-list changes. New client methods `capabilities()`, `search_agents()`,
+  `cancel_task()`, `validate_task()` and `get_inference_session()` close the
+  endpoint gaps, and `list_tasks(cursor=..., offset=...)` forwards keyset/offset
+  pagination metadata while preserving the legacy `{"tasks": [...]}` envelope.
+  Server surface unchanged. See [SDK architecture](SDK_ARCHITECTURE_PLAN.md).
 - **Phase 1.1 — task verification strategies** (`e7f8a9b0c1d2`): tasks declare
   `verification_strategy` (`deterministic`/`peer_review`/`operator`); deterministic
   tasks are verified and settled atomically in the submission transaction, with a
