@@ -54,6 +54,34 @@ Implemented in this review revision:
   conservation invariant extends to `released + platform_fee + refunded +
   slashed == reserved_total`. Refunds and slashes never carry a fee. Alembic
   head moves to `a9b8c7d6e5f4` (`escrows.platform_fee_amount`).
+- Phase 1.4 server timestamps and clock-drift defence: the server clock is the
+  only time authority. A new `clock` module anchors it to `time.monotonic()` (so
+  a wall-clock step can never rewind an in-flight lease), every request is
+  stamped with an authoritative `received_at` at ingress, and the signed-request
+  drift window tightens from 300 to **60 seconds** with `401 "client clock drift
+  exceeds tolerance"`. Claim leases are computed only as `received_at +
+  lease`, so a spoofed `X-Agent-Timestamp` cannot extend an execution lease;
+  submission deadlines and the new bounded dispute window are decided against
+  **database server time** and fail closed with `503` when the API host and
+  database clocks disagree beyond `AGENTFORGE_DB_CLOCK_SKEW_TOLERANCE_SECONDS`.
+  `submissions.created_at` stays the executor-declared instant inside the signed
+  proof but no longer decides anything. Alembic head moves to `b0c9d8e7f6a5`
+  (`claims.received_at`, `submissions.received_at`, backfilled from
+  `created_at`). See [server time and clock drift](SERVER_TIME_AND_CLOCK_DRIFT.md).
+- Phase 1.5 modular-monolith kernel: `app.py` was decomposed from 1,821 lines
+  into a 103-line composition root plus seven domain routers under
+  `server/agentforge_server/routes/` (agents, tasks, claims, submissions,
+  validations, disputes, system), with cross-domain request plumbing in
+  `routes/_shared.py`. **No API surface changed**: all 23 OpenAPI paths, every
+  route URL, request schema, response envelope, error code and `operationId` are
+  byte-identical, and no test was modified. Router mount order is defined once in
+  `routes/__init__.py` because Starlette matches in registration order — the one
+  order-sensitive pair in the API (`/api/v1/agents/search` before
+  `/api/v1/agents/{did}`) stays inside `agents.py`. Five names
+  (`MAX_LIST_BYTES`, `can_execute`, `guard_active_claim`,
+  `guard_pending_submission`, `queue_outbox`) are read through the `app` module
+  at call time rather than imported by value, because the regression suites
+  monkeypatch them there to prove the API actually consults them.
 
 See [verification and audit findings](AUDIT_VERIFICATION.md) for exact test counts,
 commands, dependency evidence and limitations. Technical controls live in

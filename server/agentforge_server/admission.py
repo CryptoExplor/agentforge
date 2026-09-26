@@ -42,6 +42,14 @@ def validate_security_configuration() -> None:
         raise ValueError("body timeout must be finite, positive and at most 60 seconds")
     if not 0 < settings.request_clock_skew_seconds <= MAX_CLOCK_SKEW_SECONDS:
         raise ValueError("clock skew must be positive and at most 3600 seconds")
+    # Server-anchored time (Grok roadmap 1.4). The drift window bounds how far a
+    # client clock may sit from the server clock; the database tolerance bounds
+    # how far the database clock may sit from the API host clock before deadline
+    # decisions fail closed. Neither may be zero, negative, unbounded or NaN.
+    if not math.isfinite(settings.db_clock_skew_tolerance_seconds) or not 0.1 <= settings.db_clock_skew_tolerance_seconds <= 60:
+        raise ValueError("database clock skew tolerance must be between 0.1 and 60 seconds")
+    if type(settings.dispute_window_seconds) is not int or not 0 <= settings.dispute_window_seconds <= 30 * 24 * 60 * 60:
+        raise ValueError("dispute window must be an integer between 0 and 30 days")
     if len(settings.trusted_validator_dids) > 1000:
         raise ValueError("too many trusted validators")
     for did in settings.trusted_validator_dids:

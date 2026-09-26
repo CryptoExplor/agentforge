@@ -245,3 +245,7 @@ class DisputeCreate(StrictModel):
 class HeartbeatResponse(StrictModel):
     claim_id: str
     lease_expires_at: float
+    #: Server-anchored receipt time the lease was extended from (Grok 1.4).
+    #: ``lease_expires_at`` is always ``received_at + lease``; a client clock
+    #: never moves it.
+    received_at: float

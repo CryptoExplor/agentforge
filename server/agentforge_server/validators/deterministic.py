@@ -220,7 +220,14 @@ def validate_submission(db: Session, task: Task, submission: Submission) -> Dete
         "invalid: " + ", ".join(session_failures) if session_failures else "",
     )
 
-    deadline_ok = not task.deadline or submission.created_at <= task.deadline
+    # Server-anchored arrival time (Grok roadmap 1.4). ``submission.created_at``
+    # is the executor-declared instant inside the signed proof; ``received_at``
+    # is when this server actually took the request. Only the latter can decide
+    # a deadline, otherwise a back-dated ``created_at`` would make a late proof
+    # look early. Rows written before 1.4 carry no ``received_at`` and fall back
+    # to the declared value.
+    arrived_at = getattr(submission, "received_at", None) or submission.created_at
+    deadline_ok = not task.deadline or arrived_at <= task.deadline
     _check(checks, "SUBMISSION_BEFORE_DEADLINE", deadline_ok, "submission arrived after the task deadline")
 
     fatal = any(item["result"] == "FAIL" for item in checks)

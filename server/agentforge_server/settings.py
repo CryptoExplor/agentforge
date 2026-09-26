@@ -41,7 +41,26 @@ class Settings:
     max_inflight_requests: int = int(os.getenv("AGENTFORGE_MAX_INFLIGHT_REQUESTS", "32"))
     body_timeout_seconds: float = float(os.getenv("AGENTFORGE_BODY_TIMEOUT_SECONDS", "10"))
     challenge_ttl_seconds: int = int(os.getenv("AGENTFORGE_CHALLENGE_TTL_SECONDS", "300"))
-    request_clock_skew_seconds: int = int(os.getenv("AGENTFORGE_REQUEST_CLOCK_SKEW_SECONDS", "300"))
+    # Signed-request clock-drift tolerance, in seconds either side of the
+    # authoritative server clock (Grok roadmap 1.4). A request whose
+    # X-Agent-Timestamp is further than this from the server's own receipt time
+    # is rejected with 401 "client clock drift exceeds tolerance": a stale
+    # request cannot be replayed later and a futuristic one cannot pre-date a
+    # lease it has not earned. Tight enough that a drifted client is told to
+    # resynchronise, wide enough for NTP-synced hosts and ordinary latency.
+    request_clock_skew_seconds: int = int(os.getenv("AGENTFORGE_REQUEST_CLOCK_SKEW_SECONDS", "60"))
+    # Maximum tolerated difference between the API host clock and the database
+    # server clock, used when a submission deadline or dispute window is decided
+    # against database server time. Larger divergence fails closed (503) rather
+    # than settling on an ambiguous clock.
+    db_clock_skew_tolerance_seconds: float = float(
+        os.getenv("AGENTFORGE_DB_CLOCK_SKEW_TOLERANCE_SECONDS", "5")
+    )
+    # Grace period, in seconds after a task deadline, during which a submission
+    # may still be disputed. Evaluated against server time, never a client
+    # clock, so escrow cannot be frozen indefinitely on a long-expired task.
+    # Tasks without a deadline keep the existing pending-state-only rule.
+    dispute_window_seconds: int = int(os.getenv("AGENTFORGE_DISPUTE_WINDOW_SECONDS", str(7 * 24 * 60 * 60)))
     # Secure default: hosted deployments should explicitly opt into the local-only faucet.
     enable_mock_faucet: bool = os.getenv("AGENTFORGE_ENABLE_MOCK_FAUCET", "false").lower() in {"1", "true", "yes"}
     technocore_base_url: str = os.getenv("AGENTFORGE_TECHNOCORE_BASE_URL", "https://technocore.chat").rstrip("/")

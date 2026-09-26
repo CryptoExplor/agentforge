@@ -15,6 +15,7 @@ This is the short map for a GitHub reviewer or coding agent.
 | `docs/AUDIT_VERIFICATION.md` | Canonical current audit scope, results, commands, dependency evidence and limitations |
 | `docs/ACCOUNTING_REMEDIATION.md` | Exact money, atomic ledger/escrow/lifecycle controls and compatibility |
 | `docs/TASK_VERIFICATION_STRATEGIES.md` | Verification strategies, atomic deterministic auto-settlement and the competing-validator guard |
+| `docs/SERVER_TIME_AND_CLOCK_DRIFT.md` | Authoritative server time: monotonic anchoring, `received_at`, drift window, lease invariants, dispute window, settings and limits |
 | `docs/ACTIVITY_ENGINE_P0_REVIEW.md` | Missing external-client source boundary and six-item plan review |
 | `docs/EVENT_OUTBOX.md` | Signed event outbox: attribution, envelope, configuration, worker, non-goals |
 | `docs/ARCHITECTURE_DECISIONS.md` | Frozen decisions and deferred provider strategy |
@@ -26,8 +27,18 @@ This is the short map for a GitHub reviewer or coding agent.
 | `docs/GITHUB_HANDOFF.md` | Short review/publication workflow linked to canonical context |
 | `docs/PR_PLAN.md` | Small future PR sequence and review checklist |
 | `docs/REPOSITORY_MAP.md` | This file |
-| `server/agentforge_server/app.py` | FastAPI routes, signing/authentication, idempotency, authorization, expiry, submissions (including deterministic auto-settlement), validation, disputes |
+| `server/agentforge_server/app.py` | Composition root only: tunables, lifespan schema guard, middleware, router mounting |
+| `server/agentforge_server/routes/__init__.py` | `DOMAIN_ROUTERS` — the single definition of router mount order (route matching is order-dependent) |
+| `server/agentforge_server/routes/_shared.py` | Cross-domain request plumbing: signing/authentication, nonce + idempotency, outbox causation, private-task read authorization, validator operator gate |
+| `server/agentforge_server/routes/agents.py` | Registration challenges, manifest registration, agent discovery, balance lookup, capability index |
+| `server/agentforge_server/routes/tasks.py` | Task creation and escrow funding, public discovery with keyset/offset pagination, task read and cancellation |
+| `server/agentforge_server/routes/claims.py` | Task claiming, lease management and heartbeats |
+| `server/agentforge_server/routes/submissions.py` | Inference sessions, signed proof submission, proof retrieval, deterministic auto-settlement |
+| `server/agentforge_server/routes/validations.py` | Submission-scoped and task-scoped peer review (`apply_validation` is the single settlement path), reputation read |
+| `server/agentforge_server/routes/disputes.py` | Dispute opening (escrow freeze, bounded window) and resolution |
+| `server/agentforge_server/routes/system.py` | `/`, `/health` with clock diagnostics, per-agent signed event outbox feed |
 | `server/agentforge_server/services.py` | Reaper/deadlines, provenance/independence, ledger/escrow, reputation, audit, outbox helpers |
+| `server/agentforge_server/clock.py` | Authoritative monotonic-anchored server clock, request `received_at` stamping, drift evaluation and the database-clock cross-check |
 | `server/agentforge_server/money.py` | Bounded exact decimal arithmetic independent of ambient context |
 | `server/agentforge_server/models.py` | SQLAlchemy tables, unique constraints, active-claim index |
 | `server/agentforge_server/schemas.py` | Pydantic request/response validation |
@@ -50,6 +61,7 @@ This is the short map for a GitHub reviewer or coding agent.
 | `tests/test_accounting_regressions.py` | Exact accounting, rollback and concurrent lifecycle tests on disposable SQLite/PostgreSQL |
 | `tests/test_provider_resolution.py` | Cached/injected settlement configuration checks and inference fail-closed regression coverage |
 | `tests/test_runtime_hardening.py` | Cache budgets, SQL-backed private retrieval and configuration-secret redaction |
+| `tests/test_clock_drift.py` | Clock-skew rejection, server-anchored lease/deadline invariants and concurrency under simulated latency |
 | `tests/test_sdk_security.py` | Private atomic identity persistence and failure cleanup |
 | `tests/test_public_exposure.py` | D1–D6 regressions and optional PostgreSQL/migration coverage |
 | `sdk/python/agentforge_sdk/` | Python identity, signing, and API client |

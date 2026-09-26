@@ -147,6 +147,73 @@ verified by SQLite upgrade/downgrade and by PostgreSQL offline SQL generation on
 and the live PostgreSQL run above is result evidence from CI, not a local run.
 This is implementation-side evidence, not independent review or merge approval.
 
+## Phase 1.4 verification: server timestamps and clock-drift defence
+
+Scope: authoritative monotonic-anchored server time, `received_at` on claims and
+submissions, the tightened 60-second signed-request drift window, lease anchoring,
+submission-deadline and dispute-window decisions on database server time, and the
+fail-closed clock-divergence guard. Python 3.11, disposable test data only, run on
+both SQLite and native PostgreSQL 16.2.
+
+| Check | Observed result |
+|---|---|
+| Full default suite (SQLite) | **367 passed, 3 skipped**, 1 dependency warning, 64.19s |
+| Pre-existing suite (before this change) | **313 passed, 3 skipped** — unchanged; no existing test was modified to fit the feature |
+| Repeated full-suite runs (stability) | 3 consecutive runs green (360/360/367 as tests were added), 0 failures |
+| `tests/test_clock_drift.py` (SQLite) | **54 passed**, 17.27s |
+| **PostgreSQL 16.2**: CI-selected suites + `tests/test_clock_drift.py` | **249 passed, 0 skipped**, 49.74s — the three PostgreSQL-only cases that skip on SQLite ran, and the new clock suite passed on PostgreSQL |
+| **PostgreSQL 16.2**: database server clock | `EXTRACT(epoch FROM now())` renders as expected and returns a `Decimal` the reader converts; host/database delta 0.052 s, inside the 5 s tolerance |
+| **PostgreSQL 16.2**: Alembic `upgrade head → downgrade → upgrade head` with live rows | head `b0c9d8e7f6a5`; backfill claim `4242.25 → 4242.25`, submission `777.5 → 777.5`; downgrade drops both columns and preserves the rows; `verify_schema(require_migrations=True)` OK |
+| `scripts/check_contracts.py` | `SCHEMAS_OK: 7` (packaged resources match), `OPENAPI_MATCH: 23 paths`, `MIGRATION_HEAD_MATCH: b0c9d8e7f6a5` |
+| Alembic SQLite `upgrade head → downgrade base → upgrade head` | `b0c9d8e7f6a5 (head)` |
+| Alembic `upgrade --sql` against `postgresql+psycopg` | `ALTER TABLE claims ADD COLUMN received_at FLOAT DEFAULT '0' NOT NULL;` and the same for `submissions`, plus the `created_at` backfill (no SQLite-specific SQL) |
+| Migration backfill on pre-existing rows | legacy claim `created_at=4242.25 → received_at=4242.25`; submission `777.5 → 777.5`; downgrade drops both columns and preserves the rows |
+| Compile (`server sdk tests examples protocol scripts migrations`) | Passed |
+| `git diff --check` | Clean |
+
+Covered cases: rejection beyond ±60 s in both directions and acceptance inside it;
+the configurable window; a futuristic timestamp earning no lease; unparseable
+timestamps; lease anchoring for claim, heartbeat and inference under fast, slow and
+jumping client clocks; non-accumulation across repeated and concurrent heartbeats;
+reaping and the lost heartbeat race; the monotonic clock under load, under a
+backwards host step and after a simulated suspend; database-clock agreement and
+fail-closed divergence (submission **and** heartbeat both refuse with `503`);
+deadline-free tasks never reading the database clock; submission `received_at`
+versus a declared `created_at`; the deterministic `SUBMISSION_BEFORE_DEADLINE`
+check using `received_at`; the dispute window opening and closing on server time;
+startup rejection of an unsafe clock configuration; and the SDK learning the
+server clock from `X-Server-Timestamp` while ignoring an unusable header.
+
+Two limitations were found and recorded rather than hidden. First, HTTP write
+races are limited to two concurrent writers because SQLite — the development and
+test default — has a single writer: a wider field raises `database is locked` on
+the **unmodified baseline** as well (reproduced at `6e5de02` with six racers), so
+this is not a regression from this change, and PostgreSQL enforces the same SQL
+claim guard for a wider field. Second, two independent reads of the database clock
+can differ by up to ~1 ms, so clock-equality assertions use a realistic tolerance
+rather than exact equality.
+
+### PostgreSQL provenance for this phase
+
+The local PostgreSQL server was native **16.2** from test-only `pgserver==0.1.4`
+(the same approach recorded in
+[PostgreSQL and migration provenance](#postgresql-and-migration-provenance)), not
+a project or runtime dependency, with `psycopg[binary]==3.3.6` as the driver. It
+used a private Unix socket under `/tmp`, a disposable data directory, and the
+repository's existing random-schema isolation fixture; the server stopped cleanly
+afterwards. This is not the maintained `postgres:16-alpine` image CI selects, and
+it is **not recommended for production**.
+
+Unlike the Phase 1.1 record, the PostgreSQL path here was executed locally rather
+than only inferred from offline SQL generation: the dialect-specific
+`database_now()` expression, the fail-closed clock-divergence guard, the
+submission-deadline and dispute-window decisions and the migration round trip all
+ran against a real server. CI remains the authoritative gate for the maintained
+image.
+
+This is implementation-side evidence, not independent review, merge approval or a
+capacity measurement.
+
 ## Reproduction commands
 
 ```sh

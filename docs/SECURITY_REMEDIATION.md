@@ -95,6 +95,37 @@ audit, ledger and outbox data are **not silently expired**; backup/archival and
 capacity policies for them remain operator work. Enrollment closure and rate
 limits bound growth rate, not total lifetime storage.
 
+## Server time is the only time authority (Grok roadmap 1.4)
+
+A client timestamp is an unauthenticated claim, so it never starts a lease,
+extends a lease, or decides a deadline. Details, settings and limits live in
+[server time and clock drift](SERVER_TIME_AND_CLOCK_DRIFT.md); the security
+consequences are:
+
+- The signed-request drift window is **60 seconds** either side of the server's
+  own receipt time (`AGENTFORGE_REQUEST_CLOCK_SKEW_SECONDS`), down from 300.
+  Outside it the request is refused with `401 "client clock drift exceeds
+  tolerance"`, consumes no nonce and creates no state. The window is validated
+  at startup, so it cannot be misconfigured to zero, negative or unbounded.
+- Every request is stamped with `received_at` at ingress from a
+  **monotonic-anchored** server clock. A wall-clock step backwards cannot rewind
+  an in-flight lease or re-open an expired one; a suspended host resynchronises
+  forward only, so honest clients are not rejected as futuristic.
+- Claim leases are only ever `received_at + lease`. A spoofed
+  `X-Agent-Timestamp` therefore cannot lengthen an execution lease, repeated
+  heartbeats cannot accumulate lease time, and a slow handler cannot gain any.
+- Submission deadlines and the bounded dispute window are decided against
+  **database server time**, cross-checked against the API host clock. If the two
+  disagree beyond `AGENTFORGE_DB_CLOCK_SKEW_TOLERANCE_SECONDS`, the decision
+  fails closed with `503` rather than settling on an ambiguous clock.
+- `submissions.created_at` remains the executor-declared instant inside the
+  signed proof, but it no longer decides anything: a back-dated proof cannot make
+  a late submission look early.
+
+The drift window bounds *when a request may be accepted*, not whether its content
+is true, and the guards detect clock divergence without repairing it: NTP on the
+API hosts and the database server is still required.
+
 Listings retain their JSON shapes, but are bounded snapshots, not exhaustive
 catalogues: agent search has limit <=100 and scans <=500 candidates; capability
 aggregation returns <=100 names. Task listing filters visibility/status/origin
@@ -128,10 +159,14 @@ exponents are checked before allocating expanded representations.
 
 ## Migration, verification and remaining gates
 
-Alembic head is now **`e7f8a9b0c1d2`** (task verification strategy), following
-`d6e7f8a9b0c1` (request quotas), which follows `c4d5e6f7a8b9`. The Phase 1.1
-column is additive with `server_default='peer_review'`, so existing task rows are
-backfilled with the manual strategy and no marketplace/outbox row is rewritten.
+Alembic head is now **`b0c9d8e7f6a5`** (server-anchored `received_at`), following
+`a9b8c7d6e5f4` (platform fee), `f8a9b0c1d2e3` (operator registry),
+`e7f8a9b0c1d2` (task verification strategy), `d6e7f8a9b0c1` (request quotas) and
+`c4d5e6f7a8b9`. The Phase 1.1 column is additive with
+`server_default='peer_review'`, so existing task rows are backfilled with the
+manual strategy and no marketplace/outbox row is rewritten. The Phase 1.4
+columns are additive `NOT NULL` floats backfilled from the already server-written
+`created_at`; downgrade drops them and preserves the rows.
 The additive `request_quotas` table/index and nonce/challenge cleanup indexes
 do not change marketplace/outbox rows. Apply migrations in a controlled step before starting the new API/worker.
 Old schema startup fails closed. Downgrade removes admission counters and these cleanup indexes;

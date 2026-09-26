@@ -44,7 +44,7 @@ def init_db() -> None:
         verify_schema()
 
 
-SCHEMA_REVISION = "a9b8c7d6e5f4"
+SCHEMA_REVISION = "b0c9d8e7f6a5"
 
 
 def verify_schema(*, require_migrations: bool = False) -> None:
