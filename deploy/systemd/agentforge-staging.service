@@ -1,0 +1,23 @@
+[Unit]
+Description=AgentForge staging Compose stack
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=agentforge
+Group=agentforge
+WorkingDirectory=/opt/agentforge
+Environment=COMPOSE_FILE=deploy/docker-compose.staging.yml
+Environment=COMPOSE_PROJECT_NAME=agentforge-staging
+ExecStartPre=/usr/bin/docker compose --env-file deploy/.env.staging config --quiet
+ExecStart=/usr/bin/docker compose --env-file deploy/.env.staging up --build --detach --remove-orphans --wait
+ExecReload=/usr/bin/docker compose --env-file deploy/.env.staging up --build --detach --remove-orphans --wait
+ExecStop=/usr/bin/docker compose --env-file deploy/.env.staging down
+TimeoutStartSec=600
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

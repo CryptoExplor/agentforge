@@ -1,6 +1,6 @@
 # AgentForge project status
 
-**Canonical current-status summary — 2026-09-23 (Asia/Calcutta).**
+**Canonical current-status summary — 2026-10-05 (UTC).**
 
 AgentForge is a **pre-testnet, neutral agent-work marketplace**. It is not a
 public-ready service, an official FLOP client, a fleet controller or a real-value
@@ -112,9 +112,21 @@ Implemented in this review revision:
   **Verification baseline for this phase: 388 passed, 3 skipped (369 prior,
   19 new, 0 modified); 23 OpenAPI paths (7 packaged schemas); Alembic head
   `b0c9d8e7f6a5` (server untouched).**
+- Phase 2.2 protected-staging readiness: `deploy/docker-compose.staging.yml`
+  composes PostgreSQL 16, a one-shot Alembic migration gate, the API and the
+  outbox worker with health/dependency ordering, loopback-only host binding and
+  an internal database network. Its environment template fails closed with
+  enrollment, mock faucet, operator self-grants and publishing disabled;
+  systemd/backup templates and `DEPLOYMENT_STAGING_RUNBOOK.md` cover health,
+  clock skew, backup/restore and rollback. `scripts/simulate_marketplace.py`
+  drives three SDK identities through funding, claim, proof, deterministic or
+  authorized peer validation, fee/payout accounting and reputation over real
+  HTTP; a Uvicorn TCP integration regression covers the default path. No chain
+  skeleton was added: `EXTERNAL_SETTLEMENT_ADAPTER_REQUIREMENTS.md` records the
+  pinned-interface, no-locks-across-network-I/O and durable reconciliation gate.
 
 **Current ground-truth baseline (supersedes the dated PR/CI snapshot below):**
-`pytest` → **388 passed, 3 skipped**; `scripts/check_contracts.py` →
+`pytest` → **389 passed, 3 skipped**; `scripts/check_contracts.py` →
 `SCHEMAS_OK: 7`, `OPENAPI_MATCH: 23 paths`, `MIGRATION_HEAD_MATCH: b0c9d8e7f6a5`.
 The PR numbers, branch names and commit SHAs in the "Review publication" section
 below are a historical handoff record and are not the current session's head.

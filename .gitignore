@@ -3,6 +3,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 .env
+deploy/.env.staging
 agentforge.db
 *.sqlite
 *.sqlite3

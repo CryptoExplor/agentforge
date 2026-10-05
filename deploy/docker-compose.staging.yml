@@ -1,0 +1,101 @@
+name: agentforge-staging
+
+x-agentforge-environment: &agentforge-environment
+  AGENTFORGE_ENV: production
+  AGENTFORGE_DATABASE_URL: postgresql+psycopg://agentforge:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/agentforge
+  AGENTFORGE_AUTO_CREATE_SCHEMA: "false"
+  AGENTFORGE_REGISTRATION_OPEN: "false"
+  OPEN_OPERATORS: "false"
+  AGENTFORGE_ENABLE_MOCK_FAUCET: "false"
+  AGENTFORGE_SETTLEMENT_PROVIDER: mock
+  AGENTFORGE_DEPLOYMENT_MODE: staging
+  AGENTFORGE_GOSSIP_ENABLED: "false"
+  AGENTFORGE_TECHNOCORE_PUBLISH_PATH: ""
+  AGENTFORGE_EVENT_SIGNING_KEY: ${AGENTFORGE_EVENT_SIGNING_KEY:?set AGENTFORGE_EVENT_SIGNING_KEY}
+  AGENTFORGE_EVENT_PUBLISHER_ID: ${AGENTFORGE_EVENT_PUBLISHER_ID:-agentforge-staging}
+  AGENTFORGE_TRUSTED_VALIDATOR_DIDS: ${AGENTFORGE_TRUSTED_VALIDATOR_DIDS:-}
+  AGENTFORGE_MAX_SERVICE_FEE_BPS: ${AGENTFORGE_MAX_SERVICE_FEE_BPS:-500}
+  AGENTFORGE_REQUEST_CLOCK_SKEW_SECONDS: ${AGENTFORGE_REQUEST_CLOCK_SKEW_SECONDS:-60}
+  AGENTFORGE_DB_CLOCK_SKEW_TOLERANCE_SECONDS: ${AGENTFORGE_DB_CLOCK_SKEW_TOLERANCE_SECONDS:-5}
+  AGENTFORGE_OUTBOX_INTERVAL_SECONDS: ${AGENTFORGE_OUTBOX_INTERVAL_SECONDS:-5}
+  AGENTFORGE_OUTBOX_JITTER_SECONDS: ${AGENTFORGE_OUTBOX_JITTER_SECONDS:-0.5}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agentforge
+      POSTGRES_USER: agentforge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentforge -d agentforge"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [backend]
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment: *agentforge-environment
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks: [backend]
+
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    environment: *agentforge-environment
+    # Migration is a one-shot dependency. The image's default command also
+    # migrates, so override it here to keep schema ownership explicit.
+    command: ["uvicorn", "agentforge_server.app:app", "--app-dir", "server", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers", "--forwarded-allow-ips", "127.0.0.1"]
+    ports:
+      - "${AGENTFORGE_BIND_ADDRESS:-127.0.0.1}:${AGENTFORGE_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,urllib.request; d=json.load(urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=3)); c=d['clock']; assert d['status']=='ok' and 'database_error' not in c and abs(c['database_skew_seconds']) <= c['database_skew_tolerance_seconds']"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks: [backend]
+
+  worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 60s
+    environment: *agentforge-environment
+    command: ["python", "-m", "agentforge_server.worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    networks: [backend]
+
+networks:
+  backend:
+    internal: true
+
+volumes:
+  postgres_data:
