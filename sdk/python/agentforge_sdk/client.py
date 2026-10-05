@@ -1,91 +1,47 @@
-"""Minimal dependency-light AgentForge client/worker SDK."""
+"""AgentForge SDK client facade.
+
+``AgentForgeClient`` remains the single public entry point of the SDK. The
+implementation lives in focused modules — :mod:`agentforge_sdk.identity`
+(key generation, atomic persistence, DID derivation, raw signing),
+:mod:`agentforge_sdk.errors` (the error hierarchy),
+:mod:`agentforge_sdk.transport` (signed HTTP, ``X-Server-Timestamp`` drift
+calibration, error mapping) and :mod:`agentforge_sdk.crypto` (canonical
+signing bytes) — and this module composes them, so both legacy import paths
+``from agentforge_sdk import ...`` and
+``from agentforge_sdk.client import ...`` keep working unchanged.
+
+The flat method surface is the compatibility contract: every historical
+method keeps its name, signature and response shape, and new endpoints are
+added as further flat methods rather than a nested namespace.
+"""
 
 from __future__ import annotations
 
-import json
-import math
-import os
-import tempfile
 import time
 import uuid
-from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
-import httpx
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+# ``os`` and ``tempfile`` are deliberately still imported here. The identity
+# implementation moved to ``agentforge_sdk.identity``, but these module
+# attributes remain a supported patch surface on the facade (the security
+# suite injects filesystem failures through them, and they are the same
+# module objects the identity code calls), so removing them would break
+# callers that reached the same objects through this module.
+import os  # noqa: F401  (compatibility patch surface, see above)
+import tempfile  # noqa: F401  (compatibility patch surface, see above)
 
-from .crypto import (
-    canonical_json,
-    did_from_private_key,
-    registration_bytes,
-    request_bytes,
-    sha256_json,
-)
+from .crypto import canonical_json, registration_bytes, sha256_json
+from .errors import AgentForgeError
+from .identity import AgentIdentity
+from .transport import Transport
 
-
-class AgentForgeError(RuntimeError):
-    pass
-
-
-@dataclass
-class AgentIdentity:
-    private_key_hex: str
-
-    @classmethod
-    def generate(cls) -> "AgentIdentity":
-        key = Ed25519PrivateKey.generate()
-        raw = key.private_bytes(
-            serialization.Encoding.Raw,
-            serialization.PrivateFormat.Raw,
-            serialization.NoEncryption(),
-        )
-        return cls(raw.hex())
-
-    @classmethod
-    def load(cls, path: str | os.PathLike[str]) -> "AgentIdentity":
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
-        identity = cls(data["private_key_hex"])
-        if identity.did != data.get("did"):
-            raise AgentForgeError("identity file DID does not match its private key")
-        return identity
-
-    def save(self, path: str | os.PathLike[str]) -> None:
-        """Atomically replace an identity file, private from its first write.
-
-        The caller must use a trusted directory. Never write through a target
-        symlink or expose a newly created key before a later chmod. Filesystem
-        failures propagate; the previous identity survives a failed replacement.
-        """
-        target = Path(path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        content = json.dumps({"did": self.did, "private_key_hex": self.private_key_hex}, indent=2)
-        fd, temporary = tempfile.mkstemp(prefix=".agentforge-identity-", dir=target.parent)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as output:
-                output.write(content)
-                output.flush()
-                os.fsync(output.fileno())
-            os.replace(temporary, target)
-        finally:
-            Path(temporary).unlink(missing_ok=True)
-
-    @property
-    def key(self) -> Ed25519PrivateKey:
-        return Ed25519PrivateKey.from_private_bytes(bytes.fromhex(self.private_key_hex))
-
-    @property
-    def did(self) -> str:
-        return did_from_private_key(self.key)
-
-    def sign(self, message: bytes) -> str:
-        import base64
-
-        return base64.urlsafe_b64encode(self.key.sign(message)).decode().rstrip("=")
+__all__ = ["AgentForgeClient", "AgentIdentity", "AgentForgeError"]
 
 
 class AgentForgeClient:
+    """Signed client for the AgentForge HTTP API."""
+
     def __init__(
         self,
         base_url: str,
@@ -95,18 +51,32 @@ class AgentForgeClient:
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.identity = identity
-        self.http = httpx.Client(timeout=timeout)
-        # Seconds to add to the local clock when signing, learned from the
-        # server's own ``X-Server-Timestamp`` response header. The server clock
-        # is authoritative and its drift window is tight, so a client whose
-        # local clock is skewed corrects itself instead of being locked out.
-        self.clock_offset: float = 0.0
-        # Local clock reading taken when the in-flight request was signed; the
-        # header learned afterwards is compared against it, not against "now".
-        self._received_at: float = time.time()
+        self.transport = Transport(self.base_url, timeout=timeout)
+
+    # ------------------------------------------------------------------
+    # Transport surface, kept as client attributes for compatibility
+    # ------------------------------------------------------------------
+
+    @property
+    def http(self) -> Any:
+        """The underlying HTTP client (injectable, e.g. an ASGI test client)."""
+        return self.transport.http
+
+    @http.setter
+    def http(self, value: Any) -> None:
+        self.transport.http = value
+
+    @property
+    def clock_offset(self) -> float:
+        """Seconds added to the local clock when signing (server-calibrated)."""
+        return self.transport.clock_offset
+
+    @clock_offset.setter
+    def clock_offset(self, value: float) -> None:
+        self.transport.clock_offset = value
 
     def close(self) -> None:
-        self.http.close()
+        self.transport.close()
 
     def __enter__(self) -> "AgentForgeClient":
         return self
@@ -114,32 +84,13 @@ class AgentForgeClient:
     def __exit__(self, *_: Any) -> None:
         self.close()
 
-    def _decode(self, response: httpx.Response) -> Any:
-        if response.status_code >= 400:
-            try:
-                detail = response.json().get("detail", response.text)
-            except Exception:
-                detail = response.text
-            raise AgentForgeError(f"HTTP {response.status_code}: {detail}")
-        return response.json()
+    def _decode(self, response: Any) -> Any:
+        """Compatibility delegate to :meth:`Transport.decode`."""
+        return self.transport.decode(response)
 
-    def _sync_clock(self, response: httpx.Response) -> None:
-        """Learn the server's clock from its response header.
-
-        Only the server's own header is trusted, and it moves a local offset —
-        it never changes what the server recorded. A malformed header is
-        ignored rather than allowed to corrupt signing.
-        """
-        header = response.headers.get("X-Server-Timestamp")
-        if not header:
-            return
-        try:
-            server_time = float(header)
-        except (TypeError, ValueError):
-            return
-        if not math.isfinite(server_time) or server_time <= 0:
-            return
-        self.clock_offset = server_time - self._received_at
+    def _sync_clock(self, response: Any) -> None:
+        """Compatibility delegate to :meth:`Transport.sync_clock`."""
+        self.transport.sync_clock(response)
 
     def _signed_request(
         self,
@@ -149,29 +100,17 @@ class AgentForgeClient:
         *,
         signing_path: str | None = None,
     ) -> Any:
-        body = b"" if payload is None else canonical_json(payload).encode()
-        # Local clock plus the offset learned from the server, so a skewed local
-        # clock does not push the signature outside the server's drift window.
-        self._received_at = time.time()
-        timestamp = str(int(self._received_at + self.clock_offset))
-        nonce = uuid.uuid4().hex
-        signature = self.identity.sign(
-            request_bytes(method, signing_path or path, body, timestamp, nonce)
+        """Compatibility delegate to :meth:`Transport.signed_request`."""
+        return self.transport.signed_request(
+            self.identity, method, path, payload, signing_path=signing_path
         )
-        headers = {
-            "Content-Type": "application/json",
-            "X-Agent-DID": self.identity.did,
-            "X-Agent-Timestamp": timestamp,
-            "X-Agent-Nonce": nonce,
-            "X-Agent-Signature": signature,
-            "Idempotency-Key": nonce,
-        }
-        response = self.http.request(method, self.base_url + path, content=body, headers=headers)
-        self._sync_clock(response)
-        return self._decode(response)
+
+    # ------------------------------------------------------------------
+    # Agents: registration, profile, discovery, capability index
+    # ------------------------------------------------------------------
 
     def register(self, manifest: dict[str, Any]) -> dict[str, Any]:
-        challenge = self._decode(self.http.get(self.base_url + "/api/v1/register/challenge"))
+        challenge = self.transport.decode(self.transport.get("/api/v1/register/challenge"))
         payload = {
             "challenge_id": challenge["challenge_id"],
             "nonce": challenge["nonce"],
@@ -187,15 +126,52 @@ class AgentForgeClient:
             )
         )
         payload["signature"] = signature
-        response = self.http.post(
-            self.base_url + "/api/v1/agents/register",
+        response = self.transport.post(
+            "/api/v1/agents/register",
             content=canonical_json(payload).encode(),
             headers={"Content-Type": "application/json"},
         )
-        return self._decode(response)
+        return self.transport.decode(response)
 
     def get_agent(self, did: str | None = None) -> dict[str, Any]:
-        return self._decode(self.http.get(self.base_url + "/api/v1/agents/" + (did or self.identity.did)))
+        return self.transport.decode(
+            self.transport.get("/api/v1/agents/" + (did or self.identity.did))
+        )
+
+    def capabilities(self) -> dict[str, Any]:
+        """Capability index: declared capability names with agent counts."""
+        return self.transport.decode(self.transport.get("/api/v1/capabilities"))
+
+    def search_agents(
+        self,
+        *,
+        capability: str | None = None,
+        chain: str | None = None,
+        min_reputation: float | None = None,
+    ) -> dict[str, Any]:
+        """Search active agents.
+
+        ``capability`` and ``chain`` are server-side filters evaluated by the
+        API. ``min_reputation`` is applied locally to the
+        ``reputation.overall`` field of the returned agent views: the API does
+        not expose a reputation filter, so the SDK filters what the server
+        already returned (bounded by the server's own result limits) instead
+        of inventing a query parameter.
+        """
+        params = {
+            key: value
+            for key, value in {"capability": capability, "chain": chain}.items()
+            if value is not None
+        }
+        result = self.transport.decode(self.transport.get("/api/v1/agents/search", params=params))
+        if min_reputation is None:
+            return result
+        agents = [
+            agent
+            for agent in result.get("agents", [])
+            if (agent.get("reputation") or {}).get("overall", 0.0) >= min_reputation
+        ]
+        return {**result, "agents": agents}
 
     def balance(self, asset: str = "MOCK") -> dict[str, Any]:
         path = f"/api/v1/agents/{self.identity.did}/balance?asset={asset}"
@@ -206,15 +182,80 @@ class AgentForgeClient:
             signing_path=f"/api/v1/agents/{self.identity.did}/balance",
         )
 
+    def reputation(self, did: str | None = None) -> dict[str, Any]:
+        target = did or self.identity.did
+        return self.transport.decode(self.transport.get(f"/api/v1/reputation/{target}"))
+
+    # ------------------------------------------------------------------
+    # Tasks: creation, discovery, cancellation
+    # ------------------------------------------------------------------
+
     def get_task(self, task_id: str) -> dict[str, Any]:
         return self._signed_request("GET", f"/api/v1/tasks/{task_id}", {})
 
-    def list_tasks(self, **filters: Any) -> dict[str, Any]:
-        params = {key: value for key, value in filters.items() if value is not None}
-        return self._decode(self.http.get(self.base_url + "/api/v1/tasks", params=params))
+    def list_tasks(
+        self,
+        *,
+        status: str | None = None,
+        kind: str | None = None,
+        verification_strategy: str | None = None,
+        capability: str | None = None,
+        chain: str | None = None,
+        origin: str | None = None,
+        min_reward: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        offset: int | None = None,
+        **filters: Any,
+    ) -> dict[str, Any]:
+        """List public tasks with the server's SQL-backed filters.
+
+        Backward compatible: the historical keyword-only filter calls
+        (``status``, ``kind``, ``verification_strategy``, ``capability``,
+        ``chain``, ``origin``, ``min_reward``, ``limit`` and any other query
+        parameter passed through ``**filters``) keep the exact legacy
+        ``{"tasks": [...]}`` response.
+
+        Passing the opaque ``cursor`` from a previous page's ``next_cursor``
+        (keyset seek — stable under concurrent inserts) or a plain ``offset``
+        opts into pagination metadata: the server then also returns
+        ``total``, ``limit``, ``offset``, ``has_more`` and ``next_cursor``.
+        When both are supplied, the cursor wins.
+        """
+        params = {
+            key: value
+            for key, value in {
+                "status": status,
+                "kind": kind,
+                "verification_strategy": verification_strategy,
+                "capability": capability,
+                "chain": chain,
+                "origin": origin,
+                "min_reward": min_reward,
+                "limit": limit,
+                "cursor": cursor,
+                "offset": offset,
+                **filters,
+            }.items()
+            if value is not None
+        }
+        return self.transport.decode(self.transport.get("/api/v1/tasks", params=params))
 
     def create_task(self, task: dict[str, Any]) -> dict[str, Any]:
         return self._signed_request("POST", "/api/v1/tasks", task)
+
+    def cancel_task(self, task_id: str) -> dict[str, Any]:
+        """Cancel one of the caller's own open/funded tasks.
+
+        Only the requester may cancel; escrow is refunded and the task becomes
+        ``CANCELLED``. A claimed or already-settled task returns a 409
+        conflict instead of being force-cancelled.
+        """
+        return self._signed_request("POST", f"/api/v1/tasks/{task_id}/cancel", {})
+
+    # ------------------------------------------------------------------
+    # Claims and inference
+    # ------------------------------------------------------------------
 
     def claim(self, task_id: str) -> dict[str, Any]:
         return self._signed_request("POST", f"/api/v1/tasks/{task_id}/claim", {})
@@ -224,6 +265,19 @@ class AgentForgeClient:
 
     def infer(self, task_id: str, request: dict[str, Any]) -> dict[str, Any]:
         return self._signed_request("POST", f"/api/v1/tasks/{task_id}/inference", request)
+
+    def get_inference_session(self, session_id: str) -> dict[str, Any]:
+        """Retrieve a persisted inference session by its ID.
+
+        The request is signed because a session on a non-public task
+        authorizes the read through the same signed-request headers; for
+        public tasks the extra headers are simply not required.
+        """
+        return self._signed_request("GET", f"/api/v1/inference/{session_id}", {})
+
+    # ------------------------------------------------------------------
+    # Submissions, proofs and validation
+    # ------------------------------------------------------------------
 
     def submit(
         self,
@@ -262,6 +316,88 @@ class AgentForgeClient:
 
     def get_proof(self, submission_id: str) -> dict[str, Any]:
         return self._signed_request("GET", f"/api/v1/proofs/{submission_id}", {})
+
+    def validate(
+        self,
+        submission_id: str,
+        *,
+        decision: str,
+        checks: list[dict[str, Any]] | None = None,
+        reason_codes: list[str] | None = None,
+        settlement: dict[str, Any] | None = None,
+        policy: str = "deterministic_then_domain",
+        decision_id: str | None = None,
+        evidence_hash: str | None = None,
+    ) -> dict[str, Any]:
+        submission = self._signed_request("GET", f"/api/v1/submissions/{submission_id}", {})
+        decision_id = decision_id or f"VD_{uuid.uuid4().hex}"
+        core = {
+            "decision_id": decision_id,
+            "submission_id": submission_id,
+            "validator_did": self.identity.did,
+            "decision": decision,
+            "policy": policy,
+            "checks": checks or [],
+            "reason_codes": reason_codes or [],
+            "settlement": settlement or {},
+            "evidence_hash": evidence_hash or submission["proof_hash"],
+        }
+        payload = {key: value for key, value in core.items() if key not in {"submission_id", "validator_did"}}
+        payload["signature"] = self.identity.sign(canonical_json(core).encode())
+        return self._signed_request("POST", f"/api/v1/submissions/{submission_id}/validate", payload)
+
+    def validate_task(
+        self,
+        task_id: str,
+        *,
+        decision: str,
+        submission_id: str | None = None,
+        evidence_hash: str | None = None,
+        checks: list[dict[str, Any]] | None = None,
+        reason_codes: list[str] | None = None,
+        settlement: dict[str, Any] | None = None,
+        policy: str = "deterministic_then_domain",
+        decision_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Submit a signed peer-validation decision scoped to a task.
+
+        ``POST /api/v1/tasks/{task_id}/validations`` lets the server resolve
+        the task's submission that is awaiting validation (``SUBMITTED``, or
+        ``DISPUTED`` so the validation also closes the dispute). The decision
+        signature nevertheless covers that submission's ID and its proof
+        hash, so the validator must already know both: pass ``submission_id``
+        (its proof hash is fetched to build the signature when
+        ``evidence_hash`` is not supplied) or supply ``evidence_hash``
+        directly alongside ``submission_id``.
+        """
+        if submission_id is None:
+            raise ValueError(
+                "validate_task() requires submission_id: the validation decision "
+                "signature covers the task's pending submission id and proof hash, "
+                "which the server resolves from the task but the signer must "
+                "already know"
+            )
+        if evidence_hash is None:
+            evidence_hash = self.get_submission(submission_id)["proof_hash"]
+        decision_id = decision_id or f"VD_{uuid.uuid4().hex}"
+        core = {
+            "decision_id": decision_id,
+            "submission_id": submission_id,
+            "validator_did": self.identity.did,
+            "decision": decision,
+            "policy": policy,
+            "checks": checks or [],
+            "reason_codes": reason_codes or [],
+            "settlement": settlement or {},
+            "evidence_hash": evidence_hash or "",
+        }
+        payload = {key: value for key, value in core.items() if key not in {"submission_id", "validator_did"}}
+        payload["signature"] = self.identity.sign(canonical_json(core).encode())
+        return self._signed_request("POST", f"/api/v1/tasks/{task_id}/validations", payload)
+
+    # ------------------------------------------------------------------
+    # Disputes
+    # ------------------------------------------------------------------
 
     def open_dispute(
         self,
@@ -311,43 +447,12 @@ class AgentForgeClient:
         payload["signature"] = self.identity.sign(canonical_json(core).encode())
         return self._signed_request("POST", f"/api/v1/disputes/{dispute_id}/resolve", payload)
 
-    def validate(
-        self,
-        submission_id: str,
-        *,
-        decision: str,
-        checks: list[dict[str, Any]] | None = None,
-        reason_codes: list[str] | None = None,
-        settlement: dict[str, Any] | None = None,
-        policy: str = "deterministic_then_domain",
-        decision_id: str | None = None,
-        evidence_hash: str | None = None,
-    ) -> dict[str, Any]:
-        submission = self._signed_request("GET", f"/api/v1/submissions/{submission_id}", {})
-        decision_id = decision_id or f"VD_{uuid.uuid4().hex}"
-        core = {
-            "decision_id": decision_id,
-            "submission_id": submission_id,
-            "validator_did": self.identity.did,
-            "decision": decision,
-            "policy": policy,
-            "checks": checks or [],
-            "reason_codes": reason_codes or [],
-            "settlement": settlement or {},
-            "evidence_hash": evidence_hash or submission["proof_hash"],
-        }
-        payload = {key: value for key, value in core.items() if key not in {"submission_id", "validator_did"}}
-        payload["signature"] = self.identity.sign(canonical_json(core).encode())
-        return self._signed_request("POST", f"/api/v1/submissions/{submission_id}/validate", payload)
+    # ------------------------------------------------------------------
+    # Events
+    # ------------------------------------------------------------------
 
     def events(self, *, cursor: str | None = None, limit: int = 100) -> dict[str, Any]:
         path = f"/api/v1/events?limit={limit}"
         if cursor:
-            from urllib.parse import quote
-
             path += "&cursor=" + quote(cursor, safe="")
         return self._signed_request("GET", path, {}, signing_path="/api/v1/events")
-
-    def reputation(self, did: str | None = None) -> dict[str, Any]:
-        target = did or self.identity.did
-        return self._decode(self.http.get(self.base_url + f"/api/v1/reputation/{target}"))

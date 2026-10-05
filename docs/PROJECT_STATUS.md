@@ -85,8 +85,36 @@ Implemented in this review revision:
   **Verification baseline for this phase: 369 passed, 3 skipped; 23 OpenAPI paths
   (7 packaged schemas); Alembic head `b0c9d8e7f6a5` (unchanged — layout only).**
 
+- Phase 2.1 modular Python SDK and full API parity: the monolithic
+  `sdk/python/agentforge_sdk/client.py` was split into focused modules —
+  `identity.py` (Ed25519 generation, atomic private-from-creation saves, DID
+  derivation, raw signing), `errors.py` (`AgentForgeError` plus additive
+  structured subclasses `AuthenticationError`, `ClockDriftError`,
+  `IdempotencyConflictError` carrying `status_code`/`detail` from the real
+  response) and `transport.py` (signed request bytes,
+  `X-Server-Timestamp` drift calibration, error mapping) — with `client.py`
+  retained as the facade so every legacy import path (`agentforge_sdk` and
+  `agentforge_sdk.client`) and every flat method is unchanged; no test was
+  modified. No new subpackages were created, so both `pyproject.toml`
+  package lists are unchanged and installed root/standalone wheels were
+  verified outside the source tree. The client now covers every live
+  `/api/v1` route: new `capabilities()`, `search_agents(capability, chain,
+  min_reputation)` (the reputation floor is a local filter over returned
+  agent views — the API exposes no such query), `cancel_task`,
+  `validate_task` (task-scoped peer validation; the signer supplies, or the
+  SDK resolves, the pending submission's id and proof hash) and
+  `get_inference_session`, and `list_tasks(..., cursor, offset)` forwards
+  keyset/offset pagination metadata while preserving the legacy
+  `{"tasks": [...]}` envelope for filter-only calls. A dedicated
+  `tests/test_sdk.py` exercises every SDK method against the live
+  TestClient, including structured error mapping and the clock-drift
+  self-correction loop.
+  **Verification baseline for this phase: 388 passed, 3 skipped (369 prior,
+  19 new, 0 modified); 23 OpenAPI paths (7 packaged schemas); Alembic head
+  `b0c9d8e7f6a5` (server untouched).**
+
 **Current ground-truth baseline (supersedes the dated PR/CI snapshot below):**
-`pytest` → **369 passed, 3 skipped**; `scripts/check_contracts.py` →
+`pytest` → **388 passed, 3 skipped**; `scripts/check_contracts.py` →
 `SCHEMAS_OK: 7`, `OPENAPI_MATCH: 23 paths`, `MIGRATION_HEAD_MATCH: b0c9d8e7f6a5`.
 The PR numbers, branch names and commit SHAs in the "Review publication" section
 below are a historical handoff record and are not the current session's head.

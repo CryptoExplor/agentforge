@@ -241,7 +241,45 @@ Note: the migration head is unchanged from Phase 1.4 — the decomposition touch
 only code layout, not the schema. Earlier rows in this file that report 254/267/367
 passing tests, 22 OpenAPI paths, or Alembic heads `e7f8a9b0c1d2` / `c4d5e6f7a8b9`
 are **superseded historical evidence** from the phase they were captured in; the
-current ground-truth baseline is the row above (369 / 23 paths / `b0c9d8e7f6a5`).
+current ground-truth baseline is the Phase 2.1 section below
+(388 / 23 paths / `b0c9d8e7f6a5`).
+
+This is implementation-side evidence, not independent review or merge approval.
+
+## Phase 2.1 verification: modular SDK and full API parity
+
+Scope: behaviour-preserving decomposition of the monolithic
+`sdk/python/agentforge_sdk/client.py` into `identity.py`, `errors.py` and
+`transport.py` behind an unchanged `client.py` facade, plus flat-method
+wrappers for the five live routes that lacked them
+(`GET /api/v1/capabilities`, `GET /api/v1/agents/search`,
+`POST /api/v1/tasks/{task_id}/cancel`,
+`POST /api/v1/tasks/{task_id}/validations`,
+`GET /api/v1/inference/{session_id}`) and cursor/offset forwarding on
+`list_tasks`. **No server code, route, schema or migration changed**, and no
+existing test was modified: both legacy import paths
+(`agentforge_sdk`, `agentforge_sdk.client`) expose the same objects, the
+`os`/`tempfile` facade patch surface used by the security suite is preserved,
+signing bytes and key formats are byte-identical, and `AgentForgeError`
+messages keep the exact `HTTP <status>: <detail>` format (the structured
+subclasses only add classification and `status_code`/`detail` attributes).
+New `tests/test_sdk.py` routes the SDK's own transport through the live
+TestClient and exercises every `AgentForgeClient`/`AgentIdentity` method,
+including keyset/offset pagination, every `list_tasks` filter, task-scoped
+and submission-scoped validation, disputes, cancellation, structured error
+mapping (401/404/409, idempotency reuse, replay) and the clock-drift
+self-correction loop driven by `X-Server-Timestamp`. Python 3.11, disposable
+test data only.
+
+| Check | Observed result |
+|---|---|
+| Full default suite (SQLite) | **388 passed, 3 skipped** (369 prior + 19 new, 0 modified), 1 dependency warning |
+| `scripts/check_contracts.py` | `SCHEMAS_OK: 7` (packaged resources match), `OPENAPI_MATCH: 23 paths`, `MIGRATION_HEAD_MATCH: b0c9d8e7f6a5` |
+| Compile (`server sdk tests examples protocol migrations scripts`) | Passed |
+| `pip check` | No broken requirements |
+| Root and standalone wheels | Built with `pip wheel --no-deps . sdk/python`; both contain `identity.py`, `errors.py`, `transport.py`, `client.py`, `crypto.py`, `__init__.py` and nothing else new — no subpackages were created, so neither `pyproject.toml` package list changed |
+| Installed-wheel smoke (separate fresh venvs, outside source import paths) | Legacy imports from `agentforge_sdk` and `agentforge_sdk.client` resolve to the same objects; structured errors subclass `AgentForgeError`; `error_for` maps live detail strings; every new method present on the facade |
+| Standalone SDK dependencies | Unchanged (`httpx`, `cryptography` only) |
 
 This is implementation-side evidence, not independent review or merge approval.
 
