@@ -12,6 +12,8 @@ This is the short map for a GitHub reviewer or coding agent.
 | `docs/DISCOVERY_SCALABILITY_PLAN.md` | 100k+ client design horizon, discovery projection/routing, private metadata policy, replay/backpressure, SDK/versioning and benchmark gates; not implemented |
 | `docs/SDK_ARCHITECTURE_PLAN.md` | Current design comparison, SDK resources/compatibility, integration boundaries, file-level execution plan and next-chat handoff; proposed, not implemented |
 | `docs/DEPLOYMENT_READINESS_2026-09-17.md` | Dated HTTP/runtime inventory, in-memory probe evidence and OPEN public-exposure findings D1–D6 |
+| `docs/DEPLOYMENT_STAGING_RUNBOOK.md` | Protected-staging startup, health/clock checks, systemd operation, backup/restore and rollback procedure |
+| `docs/EXTERNAL_SETTLEMENT_ADAPTER_REQUIREMENTS.md` | Pinned-interface, async-attempt, receipt-verification, reconciliation and security gate for any future live rail |
 | `docs/AUDIT_VERIFICATION.md` | Canonical current audit scope, results, commands, dependency evidence and limitations |
 | `docs/ACCOUNTING_REMEDIATION.md` | Exact money, atomic ledger/escrow/lifecycle controls and compatibility |
 | `docs/TASK_VERIFICATION_STRATEGIES.md` | Verification strategies, atomic deterministic auto-settlement and the competing-validator guard |
@@ -78,6 +80,8 @@ This is the short map for a GitHub reviewer or coding agent.
 | `tests/test_asset_guardrails.py` | Asset allow-list, server-derived provider/mode, and zero-reward escrow coverage |
 | `tests/test_outbox_regressions.py` | Six audit fixes: schema/signatures, atomic expiry, fresh retries, configuration and migrations; SQLite/PostgreSQL |
 | `scripts/check_contracts.py` | Schema/resource parity, OpenAPI and startup migration-head drift gate |
+| `scripts/simulate_marketplace.py` | SDK-only three-identity local/remote exchange probe with escrow, fee, balance and reputation assertions |
+| `tests/test_simulate_marketplace.py` | Standalone simulation against a real in-process Uvicorn TCP server |
 | `tests/test_signed_event_outbox.py` | Envelope signing, attribution, causation, redaction, transport flags, retries, worker |
 | `tests/test_dispute_and_independence.py` | Dispute replay/settlement and server-derived independence coverage |
 | `tests/test_deterministic_settlement.py` | Task verification strategies: deterministic auto-settlement/rejection, `peer_review`/`operator` fallback, escrow conservation and the competing-validator `409` |
@@ -86,6 +90,9 @@ This is the short map for a GitHub reviewer or coding agent.
 | `Dockerfile.dev` | Development image: explicit auto-schema/mock-faucet convenience |
 | `docker-compose.yml` | Production-like PostgreSQL composition |
 | `docker-compose.dev.yml` | Development-only SQLite/faucet composition |
+| `deploy/docker-compose.staging.yml` | Protected PostgreSQL 16 staging stack with migration gate, API/worker health ordering and internal backend network |
+| `deploy/env.staging.example` | Secret-free staging environment template; closed enrollment/faucet/publishing defaults |
+| `deploy/systemd/` | Host service and daily PostgreSQL backup timer templates for the Compose stack |
 | `.github/workflows/ci.yml` | GitHub test and compile workflow |
 | `.github/pull_request_template.md` | PR review checklist |
 

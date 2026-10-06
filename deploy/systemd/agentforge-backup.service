@@ -1,0 +1,12 @@
+[Unit]
+Description=Back up AgentForge staging PostgreSQL
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=agentforge
+Group=agentforge
+WorkingDirectory=/opt/agentforge
+Environment=BACKUP_DIR=/var/backups/agentforge
+ExecStart=/bin/sh -ec 'umask 077; mkdir -p "$BACKUP_DIR"; /usr/bin/docker compose --env-file deploy/.env.staging -f deploy/docker-compose.staging.yml exec -T postgres pg_dump -U agentforge -d agentforge -Fc > "$BACKUP_DIR/agentforge-$(date -u +%%Y%%m%%dT%%H%%M%%SZ).dump"'

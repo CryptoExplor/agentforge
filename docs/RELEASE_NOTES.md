@@ -1,14 +1,24 @@
 # AgentForge pre-testnet MVP release notes
 
-## Unreleased — roadmap Phases 1.1–2.1
+## Unreleased — roadmap Phases 1.1–2.2
 
 Review-branch changes layered on top of the 2026-09-18 follow-up below; not a
-release, merge or deployment announcement. Current verification is in
+release or deployment announcement. Current verification is in
 [PROJECT_STATUS.md](PROJECT_STATUS.md) and [AUDIT_VERIFICATION.md](AUDIT_VERIFICATION.md):
-**388 passed, 3 skipped; 23 OpenAPI paths; 7 schemas; Alembic head `b0c9d8e7f6a5`**.
+**389 passed, 3 skipped; 23 OpenAPI paths; 7 schemas; Alembic head `b0c9d8e7f6a5`**.
 
 ### Added
 
+- **Phase 2.2 — protected-staging recipe & marketplace simulation**: a dedicated
+  PostgreSQL 16/API/worker Compose stack with a one-shot Alembic gate, loopback
+  bind and clock-aware health check; closed enrollment, disabled faucet,
+  disabled publisher transport and explicit operator policy; systemd and backup
+  timer templates; backup/restore/rollback runbook; and an SDK-only simulation
+  that proves deterministic or authorized peer-review settlement, exact fee and
+  escrow accounting, balances, and reputation against local or remote HTTP.
+  External settlement remains disabled: the accompanying adapter intake
+  checklist requires pinned official interfaces and an asynchronous durable
+  attempt/reconciliation design before provider policy changes.
 - **Phase 2.1 — modular Python SDK & full API parity**: `client.py` decomposed
   into `identity.py` (keys, atomic private saves, DID derivation, raw signing),
   `errors.py` (`AgentForgeError` plus additive `AuthenticationError`,
@@ -107,7 +117,7 @@ and checkpoint evidence; they are not the current test or merge status.
 ## Non-goals and gates
 
 MOCK/TEST_CREDIT are not real assets or official FLOP receipts. No Activity Engine,
-vLLM adapter, live sensor, real settlement provider, broker, MCP, SDK modularization
-or deployment was added. Independent review and human-controlled merge remain
-mandatory. Later work follows [PR_PLAN.md](PR_PLAN.md), not an implicit roadmap
+vLLM adapter, live sensor, real settlement provider, broker, MCP or live deployment
+was added. The staging files are an operator recipe, not evidence that a host was
+deployed or secured. Independent review and human-controlled merge remain mandatory. Later work follows [PR_PLAN.md](PR_PLAN.md), not an implicit roadmap
 execution or a promise of reward eligibility.
