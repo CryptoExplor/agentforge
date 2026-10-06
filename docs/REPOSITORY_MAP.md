@@ -13,6 +13,7 @@ This is the short map for a GitHub reviewer or coding agent.
 | `docs/SDK_ARCHITECTURE_PLAN.md` | Current design comparison, SDK resources/compatibility, integration boundaries, file-level execution plan and next-chat handoff; proposed, not implemented |
 | `docs/DEPLOYMENT_READINESS_2026-09-17.md` | Dated HTTP/runtime inventory, in-memory probe evidence and OPEN public-exposure findings D1–D6 |
 | `docs/DEPLOYMENT_STAGING_RUNBOOK.md` | Protected-staging startup, health/clock checks, systemd operation, backup/restore and rollback procedure |
+| `docs/TESTNET_QUICKSTART.md` | Agent/validator operator onboarding: install, identity handling, registration, running both daemons, inspection, systemd and the mock-credit scope statement |
 | `docs/EXTERNAL_SETTLEMENT_ADAPTER_REQUIREMENTS.md` | Pinned-interface, async-attempt, receipt-verification, reconciliation and security gate for any future live rail |
 | `docs/AUDIT_VERIFICATION.md` | Canonical current audit scope, results, commands, dependency evidence and limitations |
 | `docs/ACCOUNTING_REMEDIATION.md` | Exact money, atomic ledger/escrow/lifecycle controls and compatibility |
@@ -78,9 +79,12 @@ This is the short map for a GitHub reviewer or coding agent.
 | `tests/test_mvp.py` | Original end-to-end mock exchange coverage |
 | `tests/test_audit_fixes.py` | P0/P1/P2 audit-fix integration coverage |
 | `tests/test_asset_guardrails.py` | Asset allow-list, server-derived provider/mode, and zero-reward escrow coverage |
+| `tests/test_agent_worker.py` | Autonomous daemons against live uvicorn: claim/heartbeat/submit lifecycle, capability gating, handler-failure withholding, peer-review discovery and CLI SIGTERM shutdown |
 | `tests/test_outbox_regressions.py` | Six audit fixes: schema/signatures, atomic expiry, fresh retries, configuration and migrations; SQLite/PostgreSQL |
 | `scripts/check_contracts.py` | Schema/resource parity, OpenAPI and startup migration-head drift gate |
 | `scripts/simulate_marketplace.py` | SDK-only three-identity local/remote exchange probe with escrow, fee, balance and reputation assertions |
+| `scripts/agent_worker.py` | Long-running autonomous executor: jittered discovery, capability-gated claiming, background lease heartbeat, pluggable handlers, signed proof submission, drain-on-signal shutdown |
+| `scripts/validator_worker.py` | Long-running autonomous peer validator: pending-proof discovery, independent acceptance re-derivation, signed decisions, withhold-by-default on failure |
 | `tests/test_simulate_marketplace.py` | Standalone simulation against a real in-process Uvicorn TCP server |
 | `tests/test_signed_event_outbox.py` | Envelope signing, attribution, causation, redaction, transport flags, retries, worker |
 | `tests/test_dispute_and_independence.py` | Dispute replay/settlement and server-derived independence coverage |

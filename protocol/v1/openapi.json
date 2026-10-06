@@ -746,6 +746,54 @@
             }
           }
         }
+      },
+      "get": {
+        "summary": "List Task Submissions",
+        "description": "Index the submissions recorded against one task.\n\nPeer validation needs this. A validator decision signature covers the\nsubmission ID *and* its proof hash, but until now the only way to learn\neither was to be the poster or the executor: ``GET /api/v1/events`` is\nfiltered to the caller's own audit rows, so a third-party validator\ncould never discover the submission it was approved to review. This\nread closes that gap without inventing any new authority.\n\nAuthorization is exactly ``GET /api/v1/submissions/{submission_id}``'s:\npublic tasks are readable by anyone, and a private task is readable only\nby its poster, its current executor, or an allow-listed\nvalidation-capable DID. Rows are identifiers and commitments only (see\n:func:`submission_index_view`), newest first, bounded by ``limit``.\n\nThis endpoint is read-only: unlike the task reads it deliberately does\nnot run the claim reaper, so discovery can never mutate lease state.",
+        "operationId": "list_task_submissions_api_v1_tasks__task_id__submissions_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/submissions/{submission_id}": {

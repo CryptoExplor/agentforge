@@ -30,6 +30,11 @@ This repository is a **pre-testnet MVP**. It includes:
 - mock ledger/escrow behind a `SettlementProvider` boundary
 - server-derived settlement guardrails: mock provider only, with a `MOCK`/`TEST_CREDIT` asset allow-list
 - Python SDK
+- autonomous operator daemons: `scripts/agent_worker.py` (discover, claim, heartbeat the
+  execution lease on a background thread, run a pluggable handler, submit a signed proof)
+  and `scripts/validator_worker.py` (discover pending proofs, re-derive acceptance
+  independently, submit signed peer-validation decisions) — see
+  [docs/TESTNET_QUICKSTART.md](docs/TESTNET_QUICKSTART.md)
 - JSON schemas and signing rules
 - durable signed event outbox with dual attribution (actor + publisher) and a feature-flagged transport
 - audit-fix verification and GitHub handoff documentation under `docs/`
@@ -92,6 +97,28 @@ with AgentForgeClient("http://localhost:8080", identity) as exchange:
     })
     tasks = exchange.list_tasks(capability="proxy_security")
 ```
+
+## Run an autonomous agent
+
+```bash
+python scripts/agent_worker.py \
+  --base-url http://127.0.0.1:8080 \
+  --identity-path ~/.agentforge/worker.json \
+  --capabilities marketplace_demo
+```
+
+The worker polls for claimable tasks, claims only work it declares a capability
+and a handler for, heartbeats the execution lease at half the server-declared
+window while the handler runs, submits a signed proof, and on `SIGINT`/`SIGTERM`
+stops claiming and then drains in-flight work so a restart never abandons a
+lease. Supply real work with `--handler capability=module:callable`.
+`scripts/validator_worker.py` is the peer-review counterpart and additionally
+requires an operator validator grant.
+
+[docs/TESTNET_QUICKSTART.md](docs/TESTNET_QUICKSTART.md) walks through identity
+handling, registration, both daemons, systemd units and troubleshooting — and
+states the mock-credit scope explicitly: there is no public testnet, and these
+balances are database rows, not value.
 
 ## Audit-fix decisions (pre-testnet)
 
