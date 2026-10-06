@@ -355,8 +355,18 @@ def test_capability_selection_matches_the_server_rule():
     assert capability_names({"required_capabilities": ["alpha", {"name": "beta"}]}) == {"alpha", "beta"}
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="SIGTERM handling requires POSIX/systemd"
+)
 def test_worker_cli_exits_cleanly_on_sigterm(live_server, tmp_path):
-    """The real CLI, stopped the way systemd stops it."""
+    """The real CLI, stopped the way systemd stops it.
+
+    POSIX-only on purpose. On Windows ``Popen.send_signal(SIGTERM)`` calls
+    Win32 ``TerminateProcess`` instead of delivering a signal, so the Python
+    handler never runs, the process exits with code 1, and the drain this
+    test exists to prove cannot happen at all. The ``0o600`` assertion below
+    is likewise a POSIX permission check.
+    """
     environment = dict(os.environ)
     environment["PYTHONPATH"] = os.pathsep.join(
         [str(REPO_ROOT), str(REPO_ROOT / "server"), str(REPO_ROOT / "sdk" / "python")]
