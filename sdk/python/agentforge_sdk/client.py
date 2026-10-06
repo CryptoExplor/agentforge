@@ -311,6 +311,31 @@ class AgentForgeClient:
         }
         return self._signed_request("POST", f"/api/v1/tasks/{task_id}/submissions", payload)
 
+    def list_task_submissions(
+        self,
+        task_id: str,
+        *,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """Index a task's submissions: identifiers and commitments only.
+
+        This is how a peer validator finds the proof it is approved to
+        review. ``validate_task()`` must sign the pending submission's ID
+        and proof hash, and ``GET /api/v1/events`` only ever returns the
+        caller's own audit rows, so a validator that is neither the poster
+        nor the executor has no other way to learn them.
+
+        Each row carries ``submission_id``, ``task_id``, ``executor_did``,
+        ``status``, ``result_hash``, ``proof_hash`` and ``created_at``,
+        newest first. Result bodies, evidence and proofs are deliberately
+        not included: fetch one with :meth:`get_submission` once a
+        submission has been selected. The request is signed so the same
+        call works on a private task the caller is authorized to read.
+        """
+        path = f"/api/v1/tasks/{task_id}/submissions"
+        wire_path = path if limit is None else f"{path}?limit={int(limit)}"
+        return self._signed_request("GET", wire_path, {}, signing_path=path)
+
     def get_submission(self, submission_id: str) -> dict[str, Any]:
         return self._signed_request("GET", f"/api/v1/submissions/{submission_id}", {})
 

@@ -425,6 +425,90 @@ def test_submission_scoped_validate(server):
     assert task["escrow"]["status"] == "REFUNDED"
 
 
+def test_list_task_submissions_lets_a_validator_discover_the_pending_proof(server):
+    """The index is how a third party learns what it is reviewing.
+
+    A validation decision signature covers the submission ID and its proof
+    hash, and the event feed only returns the caller's own audit rows, so
+    without this read a validator that is neither poster nor executor could
+    never assemble one.
+    """
+    state = pending_submission(server)
+    validator = AgentIdentity.generate()
+    validator_client = register(
+        server, validator, {"name": "validator", "capabilities": ["validation"], "chains": ["base"]}
+    )
+    approve_validator(validator)
+
+    index = validator_client.list_task_submissions(state["task"]["id"])
+    assert index["task_id"] == state["task"]["id"]
+    assert len(index["submissions"]) == 1
+    row = index["submissions"][0]
+    assert row["submission_id"] == state["submission"]["submission_id"]
+    assert row["proof_hash"] == state["submission"]["proof_hash"]
+    assert row["result_hash"] == state["submission"]["result_hash"]
+    assert row["executor_did"] == state["executor"].did
+    assert row["status"] == "SUBMITTED"
+    # Identifiers and commitments only: a list response never sprays bodies.
+    assert not {"result", "evidence", "proof"} & set(row)
+
+    verdict = validator_client.validate_task(
+        state["task"]["id"],
+        decision="VERIFIED",
+        submission_id=row["submission_id"],
+        evidence_hash=row["proof_hash"],
+    )
+    assert verdict["decision"] == "VERIFIED"
+
+
+def test_list_task_submissions_honours_limit_and_empty_tasks(server):
+    state = pending_submission(server)
+    assert state["poster_client"].list_task_submissions(state["task"]["id"], limit=1)[
+        "submissions"
+    ][0]["submission_id"] == state["submission"]["submission_id"]
+
+    unclaimed = state["poster_client"].create_task(task_payload())
+    assert state["poster_client"].list_task_submissions(unclaimed["id"])["submissions"] == []
+
+    with pytest.raises(AgentForgeError, match="404"):
+        state["poster_client"].list_task_submissions("T_missing")
+
+
+def test_list_task_submissions_applies_private_task_read_authorization(server):
+    """A private task's index is invisible to anyone not authorized to read it."""
+    poster = AgentIdentity.generate()
+    executor = AgentIdentity.generate()
+    stranger = AgentIdentity.generate()
+    poster_client = register(
+        server, poster, {"name": "poster", "capabilities": ["research"], "chains": ["base"]}
+    )
+    executor_client = register(
+        server, executor, {"name": "executor", "capabilities": ["proxy_security"], "chains": ["base"]}
+    )
+    stranger_client = register(
+        server, stranger, {"name": "stranger", "capabilities": ["proxy_security"], "chains": ["base"]}
+    )
+
+    payload = task_payload()
+    payload["visibility"] = "private"
+    task = poster_client.create_task(payload)
+    executor_client.claim(task["id"])
+    submission = executor_client.submit(
+        task["id"],
+        result={"risk": "unknown"},
+        evidence=[{"kind": "bytecode_hash", "content_hash": "sha256:abc"}],
+    )
+
+    for authorized in (poster_client, executor_client):
+        rows = authorized.list_task_submissions(task["id"])["submissions"]
+        assert [row["submission_id"] for row in rows] == [submission["submission_id"]]
+
+    # Same 404-not-403 shape the private task read itself uses: an
+    # unauthorized caller is not told the task exists.
+    with pytest.raises(AgentForgeError, match="404"):
+        stranger_client.list_task_submissions(task["id"])
+
+
 # ---------------------------------------------------------------------------
 # Cancellation
 # ---------------------------------------------------------------------------

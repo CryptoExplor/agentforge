@@ -12,7 +12,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..crypto import canonical_json, sha256_json, verify_signature
@@ -61,6 +62,28 @@ def submission_view(submission: Submission) -> dict[str, Any]:
         "result_hash": submission.result_hash,
         "proof_hash": submission.proof_hash,
         "status": submission.status,
+        "created_at": submission.created_at,
+    }
+
+
+def submission_index_view(submission: Submission) -> dict[str, Any]:
+    """Identifier-and-commitment view used by the task submission index.
+
+    Deliberately not :func:`submission_view`: a list endpoint must stay
+    bounded and must not spray full result bodies, evidence or proofs across
+    every caller that can read the task. The identifiers and the two hashes
+    are exactly what a peer validator needs to select a submission and build
+    its decision signature; the body is then fetched one submission at a
+    time through ``GET /api/v1/submissions/{submission_id}``, which applies
+    the same read authorization.
+    """
+    return {
+        "submission_id": submission.id,
+        "task_id": submission.task_id,
+        "executor_did": submission.executor_did,
+        "status": submission.status,
+        "result_hash": submission.result_hash,
+        "proof_hash": submission.proof_hash,
         "created_at": submission.created_at,
     }
 
@@ -353,6 +376,47 @@ async def submit_task(
     finish_idempotency(request, response_body)
     db.commit()
     return response_body
+
+
+@router.get("/api/v1/tasks/{task_id}/submissions")
+async def list_task_submissions(
+    task_id: str,
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    """Index the submissions recorded against one task.
+
+    Peer validation needs this. A validator decision signature covers the
+    submission ID *and* its proof hash, but until now the only way to learn
+    either was to be the poster or the executor: ``GET /api/v1/events`` is
+    filtered to the caller's own audit rows, so a third-party validator
+    could never discover the submission it was approved to review. This
+    read closes that gap without inventing any new authority.
+
+    Authorization is exactly ``GET /api/v1/submissions/{submission_id}``'s:
+    public tasks are readable by anyone, and a private task is readable only
+    by its poster, its current executor, or an allow-listed
+    validation-capable DID. Rows are identifiers and commitments only (see
+    :func:`submission_index_view`), newest first, bounded by ``limit``.
+
+    This endpoint is read-only: unlike the task reads it deliberately does
+    not run the claim reaper, so discovery can never mutate lease state.
+    """
+    task = db.get(Task, task_id)
+    if not task:
+        raise http_error(404, "task not found")
+    await authorize_task_read(request, db, task)
+    rows = db.scalars(
+        select(Submission)
+        .where(Submission.task_id == task.id)
+        .order_by(Submission.created_at.desc(), Submission.id.desc())
+        .limit(limit)
+    ).all()
+    return {
+        "task_id": task.id,
+        "submissions": [submission_index_view(row) for row in rows],
+    }
 
 
 @router.get("/api/v1/submissions/{submission_id}")

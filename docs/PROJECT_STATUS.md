@@ -124,9 +124,39 @@ Implemented in this review revision:
   HTTP; a Uvicorn TCP integration regression covers the default path. No chain
   skeleton was added: `EXTERNAL_SETTLEMENT_ADAPTER_REQUIREMENTS.md` records the
   pinned-interface, no-locks-across-network-I/O and durable reconciliation gate.
+- Phase 2.3 autonomous agent and validator daemons: `scripts/agent_worker.py`
+  is a long-running executor (jittered discovery with exponential backoff,
+  capability-gated claiming, a background lease heartbeat at half the
+  server-declared window, pluggable `--handler capability=module:callable`
+  work, signed proof submission with a pinned `submission_id`, and
+  SIGINT/SIGTERM shutdown that stops claiming and then drains in-flight work).
+  A bounded declined map records permanent claim refusals (403 capability or
+  independence, 404 gone) so the loop stops re-attempting a claim it can never
+  win: a live run against uvicorn made 51 claim attempts for one
+  independence-refused task in a few seconds before this, and 1 after.
+  `scripts/validator_worker.py` is the peer-review counterpart: it discovers
+  pending proofs, re-derives the acceptance criteria independently
+  (result-hash reproduction, committed `expected_result_hash`, required
+  outputs/evidence, acceptance schema) and submits signed decisions, voting
+  `REJECTED` only under an explicit `--reject` because moving escrow is not the
+  same as holding an opinion. Each thread holds its own SDK client, since
+  transport clock-calibration state is per-connection. One additive read,
+  `GET /api/v1/tasks/{task_id}/submissions`, closes the discovery gap that made
+  third-party peer review impossible: a decision signature must cover the
+  pending submission's ID and proof hash, but `GET /api/v1/events` is scoped to
+  the caller's own audit rows, so only the poster and executor could previously
+  learn either. It is identifier-and-commitment only, carries no new authority
+  (the same `authorize_task_read` gate as the single-submission read) and adds
+  an operation to an existing path, so the contract stays at 23 paths with no
+  migration. `docs/TESTNET_QUICKSTART.md` is the operator-facing onboarding
+  guide and states the scope plainly: mock credits are database rows, there is
+  no public testnet, and external settlement remains gated.
+  **Verification baseline for this phase: 402 passed, 3 skipped (389 prior,
+  13 new, 0 modified); 23 OpenAPI paths (7 packaged schemas); Alembic head
+  `b0c9d8e7f6a5` (schema untouched).**
 
 **Current ground-truth baseline (supersedes the dated PR/CI snapshot below):**
-`pytest` → **389 passed, 3 skipped**; `scripts/check_contracts.py` →
+`pytest` → **402 passed, 3 skipped**; `scripts/check_contracts.py` →
 `SCHEMAS_OK: 7`, `OPENAPI_MATCH: 23 paths`, `MIGRATION_HEAD_MATCH: b0c9d8e7f6a5`.
 The PR numbers, branch names and commit SHAs in the "Review publication" section
 below are a historical handoff record and are not the current session's head.
