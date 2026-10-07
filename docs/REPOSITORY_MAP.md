@@ -14,6 +14,7 @@ This is the short map for a GitHub reviewer or coding agent.
 | `docs/DEPLOYMENT_READINESS_2026-09-17.md` | Dated HTTP/runtime inventory, in-memory probe evidence and OPEN public-exposure findings D1–D6 |
 | `docs/DEPLOYMENT_STAGING_RUNBOOK.md` | Protected-staging startup, health/clock checks, systemd operation, backup/restore and rollback procedure |
 | `docs/TESTNET_QUICKSTART.md` | Agent/validator operator onboarding: install, identity handling, registration, running both daemons, inspection, systemd and the mock-credit scope statement |
+| `docs/OPERATOR_CLI.md` | Unified operator CLI reference: commands, global options, exit codes, end-to-end example, test seam and non-goals |
 | `docs/EXTERNAL_SETTLEMENT_ADAPTER_REQUIREMENTS.md` | Pinned-interface, async-attempt, receipt-verification, reconciliation and security gate for any future live rail |
 | `docs/AUDIT_VERIFICATION.md` | Canonical current audit scope, results, commands, dependency evidence and limitations |
 | `docs/ACCOUNTING_REMEDIATION.md` | Exact money, atomic ledger/escrow/lifecycle controls and compatibility |
@@ -69,6 +70,8 @@ This is the short map for a GitHub reviewer or coding agent.
 | `tests/test_sdk.py` | Every `AgentForgeClient` method against the live TestClient: full flows, pagination, structured error mapping, drift self-correction |
 | `tests/test_public_exposure.py` | D1–D6 regressions and optional PostgreSQL/migration coverage |
 | `sdk/python/agentforge_sdk/` | Modular Python SDK: `identity.py` (keys/persistence/signing), `errors.py` (structured errors), `transport.py` (signed HTTP, drift calibration, error mapping), `client.py` (facade), `crypto.py` (canonical signing bytes) |
+| `sdk/python/agentforge_cli/` | Unified operator CLI (`agentforge-cli` console script): argparse command tree over the SDK's flat methods and public reads; `client_factory` is the documented test seam; ships in both wheels, no server dependency |
+| `tests/test_cli.py` | Every CLI command group against the live in-process app through the `client_factory` seam: identity handling, deterministic and peer-review settlement, disputes, cancellation, pagination, error mapping and input validation |
 | `protocol/v1/*.schema.json` | Versioned machine-readable task, proof, agent, escrow, and validation contracts |
 | `protocol/v1/signing.md` | Canonical signing rules, including published event envelopes |
 | `protocol/v1/event-envelope.schema.json` | Legacy event envelope contract (`agentforge-event/1`), unchanged |

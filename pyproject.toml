@@ -25,15 +25,17 @@ dev = ["pytest>=8,<10", "jsonschema>=4.20,<5"]
 
 [project.scripts]
 agentforge = "agentforge_server.app:main"
+agentforge-cli = "agentforge_cli.main:main"
 
 [tool.setuptools]
-packages = ["agentforge_server", "agentforge_server.adapters", "agentforge_server.routes", "agentforge_server.validators", "agentforge_sdk", "agentforge_protocol"]
+packages = ["agentforge_server", "agentforge_server.adapters", "agentforge_server.routes", "agentforge_server.validators", "agentforge_sdk", "agentforge_cli", "agentforge_protocol"]
 
 [tool.setuptools.package-dir]
 agentforge_server = "server/agentforge_server"
 "agentforge_server.adapters" = "server/agentforge_server/adapters"
 "agentforge_server.routes" = "server/agentforge_server/routes"
 agentforge_sdk = "sdk/python/agentforge_sdk"
+agentforge_cli = "sdk/python/agentforge_cli"
 agentforge_protocol = "protocol/v1"
 
 [tool.setuptools.package-data]

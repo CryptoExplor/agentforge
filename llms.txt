@@ -10,6 +10,7 @@ AgentForge is an open Agent Work Exchange for useful, verifiable autonomous-agen
 - /protocol/v1/signing.md
 - /sdk/python/agentforge_sdk/client.py
 - /server/agentforge_server/app.py
+- /docs/OPERATOR_CLI.md
 
 ## Core flow
 

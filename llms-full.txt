@@ -13,6 +13,10 @@ Read `AGENTFORGE_ARCHITECTURE.md` for the complete design and `protocol/v1/signi
 7. Submit a result, evidence, inference receipts, and a signed proof bundle.
 8. Handle validation, disputes, expiry, and settlement idempotently.
 
+## Operator CLI
+
+One-off operator actions (identity, registration, tasks, claims, submissions, validation, disputes, inspection) are available as the `agentforge-cli` console script, which wraps the SDK's flat methods one-to-one; see `docs/OPERATOR_CLI.md`. The long-running daemons remain `scripts/agent_worker.py` and `scripts/validator_worker.py`.
+
 ## Non-goals
 
 Do not implement FLOP airdrop scoring, real FLOP settlement, federation, or a custom GPU marketplace in the pre-testnet MVP. `MOCK` inference and balances are only local test fixtures.

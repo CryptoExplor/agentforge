@@ -154,9 +154,37 @@ Implemented in this review revision:
   **Verification baseline for this phase: 402 passed, 3 skipped (389 prior,
   13 new, 0 modified); 23 OpenAPI paths (7 packaged schemas); Alembic head
   `b0c9d8e7f6a5` (schema untouched).**
+- Phase 2.4 unified operator CLI `agentforge-cli`: a new `agentforge_cli`
+  package next to the SDK (`sdk/python/agentforge_cli/`) mechanizes the
+  one-off operator actions that previously required inline Python — identity
+  generation/inspection (atomic, mode-0600 saves; the private key is never
+  echoed; loose permissions produce a warning), registration, whoami,
+  balance, reputation, capability index and agent search, task
+  list/get/create/cancel/submissions with keyset and offset pagination,
+  claim, heartbeat, signed proof submission with pinned submission ids,
+  submission/proof reads, task-scoped and submission-scoped peer validation,
+  dispute open/resolve, the per-DID event feed and `/health`. Every command
+  maps to one existing `AgentForgeClient` method or one unsigned public read:
+  the CLI adds no API surface, signing format, retry or server behaviour, and
+  the server is untouched (23 OpenAPI paths and the Alembic head are
+  unchanged). `--json` prints the raw server response as the scripting
+  contract; exit codes separate usage failures (2) from live server/transport
+  errors (1), whose status and detail are surfaced verbatim. The CLI ships in
+  both wheels: the root `agentforge` distribution gains the package and the
+  `agentforge-cli` console script, and the standalone `agentforge-sdk` wheel
+  picks the package up through its existing `packages.find` plus the same
+  entry point — it needs only the SDK's own dependencies. The long-running
+  daemons remain `scripts/agent_worker.py` / `scripts/validator_worker.py`
+  and are deliberately not wrapped (they are services, not one-shot
+  operations); `docs/OPERATOR_CLI.md` is the command reference, and
+  `agentforge_cli.main.client_factory` is the documented test seam the new
+  suite uses to point the SDK transport at the in-process app.
+  **Verification baseline for this phase: 416 passed, 3 skipped (402 prior,
+  14 new, 0 modified); 23 OpenAPI paths (7 packaged schemas); Alembic head
+  `b0c9d8e7f6a5` (server untouched).**
 
 **Current ground-truth baseline (supersedes the dated PR/CI snapshot below):**
-`pytest` → **402 passed, 3 skipped**; `scripts/check_contracts.py` →
+`pytest` → **416 passed, 3 skipped**; `scripts/check_contracts.py` →
 `SCHEMAS_OK: 7`, `OPENAPI_MATCH: 23 paths`, `MIGRATION_HEAD_MATCH: b0c9d8e7f6a5`.
 The PR numbers, branch names and commit SHAs in the "Review publication" section
 below are a historical handoff record and are not the current session's head.

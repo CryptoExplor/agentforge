@@ -9,6 +9,11 @@ description = "Python SDK for AgentForge"
 requires-python = ">=3.11"
 dependencies = ["httpx>=0.28,<1", "cryptography>=50.0.1,<51"]
 
+[project.scripts]
+# The unified operator CLI ships with the SDK: it only needs the SDK's own
+# dependencies and is the client-side counterpart of docs/TESTNET_QUICKSTART.md.
+agentforge-cli = "agentforge_cli.main:main"
+
 [tool.setuptools]
 package-dir = {"" = "."}
 
