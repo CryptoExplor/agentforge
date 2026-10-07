@@ -164,7 +164,8 @@ def test_identity_new_show_and_overwrite_guard(tmp_path, run_cli):
     assert identity.did in out
     assert identity.private_key_hex not in out
     # mkstemp-based save: private from the first write.
-    assert path.stat().st_mode & 0o077 == 0
+    if os.name == "posix":
+        assert path.stat().st_mode & 0o077 == 0
 
     code, out, err = run_cli("identity", "new", str(path))
     assert code == cli_main.EXIT_USAGE
