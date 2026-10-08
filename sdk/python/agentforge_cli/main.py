@@ -157,6 +157,16 @@ def money_text(amount: Any) -> str:
 # ---------------------------------------------------------------------------
 
 
+def load_identity_from_path(path: Path) -> AgentIdentity:
+    """Load an identity from an explicit file path."""
+    if not path.is_file():
+        raise CliUsageError(f"identity file not found: {path}")
+    try:
+        return AgentIdentity.load(path)
+    except (AgentForgeError, KeyError, ValueError, json.JSONDecodeError) as exc:
+        raise CliUsageError(f"cannot load identity from {path}: {exc}") from exc
+
+
 def load_identity(ctx: Context, *, required: bool) -> AgentIdentity:
     """Load the configured identity file.
 
@@ -172,10 +182,7 @@ def load_identity(ctx: Context, *, required: bool) -> AgentIdentity:
                 "(create one with: agentforge-cli identity new)"
             )
         return AgentIdentity.generate()
-    try:
-        return AgentIdentity.load(path)
-    except (AgentForgeError, KeyError, ValueError, json.JSONDecodeError) as exc:
-        raise CliUsageError(f"cannot load identity from {path}: {exc}") from exc
+    return load_identity_from_path(path)
 
 
 def make_client(ctx: Context, identity: AgentIdentity) -> AgentForgeClient:
@@ -240,9 +247,7 @@ def cmd_identity_new(args: argparse.Namespace) -> int:
 def cmd_identity_show(args: argparse.Namespace) -> int:
     ctx = context_from(args)
     path = Path(args.path).expanduser() if args.path else ctx.identity_path
-    if not path.is_file():
-        raise CliUsageError(f"identity file not found: {path}")
-    identity = AgentIdentity.load(path)
+    identity = load_identity_from_path(path)
     mode_warning = ""
     try:
         mode = path.stat().st_mode

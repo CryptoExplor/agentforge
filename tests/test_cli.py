@@ -197,6 +197,14 @@ def test_identity_show_warns_on_loose_permissions(tmp_path, run_cli):
     assert "WARNING" in out and "chmod 600" in out
 
 
+def test_identity_show_corrupt_file_is_usage_error(tmp_path, run_cli):
+    path = tmp_path / "corrupt.json"
+    path.write_text("invalid-json{", encoding="utf-8")
+    code, _, err = run_cli("identity", "show", str(path))
+    assert code == cli_main.EXIT_USAGE
+    assert "cannot load identity" in err
+
+
 def test_missing_identity_is_a_usage_error(tmp_path, run_cli):
     code, out, err = run_cli(
         "balance", "--base-url", "http://exchange.test", "--identity", str(tmp_path / "nope.json")
