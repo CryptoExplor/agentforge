@@ -29,6 +29,8 @@ were 7 schemas / 23 paths / migration `b0c9d8e7f6a5`.
 | `.venv/bin/pip check` | `No broken requirements found.` |
 | Migration regression in the new suite, on both database dialects | Upgrade head; live HTTP task/funding + enqueue; metadata/index parity; downgrade to prior head preserving task/escrow; stale-schema startup refusal; re-upgrade head |
 | Both non-editable wheels, commands below | `ROOT_WHEEL_SMOKE_OK`, `SDK_WHEEL_SMOKE_OK`; both `agentforge-cli --version` → `agentforge-cli 0.1.0`; both `--help` exit 0 |
+| Live CI on implementation commit `855992ef5f5ae1c4cad0114512139958f831cd54` | [Run 37842401207](https://github.com/CryptoExplor/agentforge/actions/runs/37842401207): `test`, `postgres-audit-regressions`, `dependency-audit` all **success**; verified with `gh run view 37842401207 --json conclusion,headSha,url,jobs`. CI job outcomes are verified; raw log download was blocked by this sandbox's outbound host restrictions, so the measured counts/timings above are explicitly local. |
+| `git diff --cached --check` before implementation/publication commits | Exit 0 |
 | Existing tests and public contracts | No existing test changed; no change to `protocol/`, SDK, routes, signing or mock settlement provider |
 
 ### New coverage and trust limits

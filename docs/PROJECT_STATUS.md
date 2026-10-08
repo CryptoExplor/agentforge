@@ -214,8 +214,14 @@ not used as the current baseline.
 **Current GitHub baseline:** live fetch and PR lookup confirmed PR #14 merged
 on 2026-10-08 at `38eda8073439b3dd5b31843d111afbc3c7867a38`; `origin/main`
 and this session's starting HEAD matched. Implementation remains on
-`arena/9ddbb84c-agentforge`, targeting `main` for separate audit and human-only
-merge. The PR #4–#6 snapshots below are historical, not this phase's publication.
+`arena/9ddbb84c-agentforge`, published as [PR #15](https://github.com/CryptoExplor/agentforge/pull/15)
+against `main`, open for separate audit and human-only merge. Implementation
+commit `855992ef5f5ae1c4cad0114512139958f831cd54` passed all three CI jobs
+(`test`, `postgres-audit-regressions`, `dependency-audit`) in
+[run 37842401207](https://github.com/CryptoExplor/agentforge/actions/runs/37842401207).
+This publication-record follow-up changes documentation only. Independent
+review and merge approval remain pending. The PR #4–#6 snapshots below are
+historical, not this phase's publication.
 
 See [verification and audit findings](AUDIT_VERIFICATION.md) for exact test counts,
 commands, dependency evidence and limitations. Technical controls live in
