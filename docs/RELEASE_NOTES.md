@@ -1,13 +1,36 @@
 # AgentForge pre-testnet MVP release notes
 
-## Unreleased — roadmap Phases 1.1–2.2
+## Unreleased — roadmap Phases 1.1–2.4
 
 Review-branch changes layered on top of the 2026-09-18 follow-up below; not a
 release or deployment announcement. Current verification is in
 [PROJECT_STATUS.md](PROJECT_STATUS.md) and [AUDIT_VERIFICATION.md](AUDIT_VERIFICATION.md):
-**389 passed, 3 skipped; 23 OpenAPI paths; 7 schemas; Alembic head `b0c9d8e7f6a5`**.
+**416 passed, 3 skipped; 23 OpenAPI paths; 7 schemas; Alembic head `b0c9d8e7f6a5`**.
 
 ### Added
+
+- **Phase 2.4 — unified operator CLI `agentforge-cli`**: a new
+  `agentforge_cli` package beside the SDK mechanizes the one-off operator
+  actions (identity new/show, registration, whoami, balance, reputation,
+  capability index, agent search, task list/get/create/cancel/submissions,
+  claim, heartbeat, signed submission with pinned ids, submission/proof
+  reads, task- and submission-scoped validation, dispute open/resolve,
+  events, health). Every command maps to one existing SDK method or one
+  unsigned public read: no new API surface, signing format or server
+  behaviour, and the server is untouched. `--json` is the raw-response
+  scripting contract; exit codes separate usage failures from live
+  server/transport errors. Ships in both wheels via the `agentforge-cli`
+  console script; the daemons remain plain scripts. See
+  [docs/OPERATOR_CLI.md](OPERATOR_CLI.md).
+- **Phase 2.3 — autonomous agent and validator daemons**:
+  `scripts/agent_worker.py` (jittered discovery, capability-gated claiming,
+  background lease heartbeat, pluggable handlers, signed proof submission,
+  bounded declined map, drain-on-signal shutdown) and
+  `scripts/validator_worker.py` (pending-proof discovery, independent
+  acceptance re-derivation, withhold-by-default rejection), plus one
+  additive read `GET /api/v1/tasks/{task_id}/submissions` (identifier and
+  commitment only, same `authorize_task_read` gate) and
+  [docs/TESTNET_QUICKSTART.md](TESTNET_QUICKSTART.md).
 
 - **Phase 2.2 — protected-staging recipe & marketplace simulation**: a dedicated
   PostgreSQL 16/API/worker Compose stack with a one-shot Alembic gate, loopback

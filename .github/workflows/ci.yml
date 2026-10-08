@@ -24,6 +24,9 @@ jobs:
           /tmp/agentforge-wheel/bin/pip install dist/*.whl
           cd /tmp
           /tmp/agentforge-wheel/bin/python -c 'from agentforge_server.event_envelope import _VALIDATORS; assert len(_VALIDATORS) == 2; from agentforge_server.validators.result_schema import validate_result_schema; assert validate_result_schema({}, True) == (True, ""); from agentforge_server.admission import consume'
+          /tmp/agentforge-wheel/bin/python -c 'from agentforge_cli.main import build_parser, main; assert callable(main)'
+          /tmp/agentforge-wheel/bin/agentforge-cli --version
+          /tmp/agentforge-wheel/bin/agentforge-cli --help > /dev/null
 
   postgres-audit-regressions:
     runs-on: ubuntu-latest
