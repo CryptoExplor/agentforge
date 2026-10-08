@@ -1,6 +1,6 @@
 # AgentForge project status
 
-**Canonical current-status summary — 2026-10-05 (UTC).**
+**Canonical current-status summary — 2026-10-09 (Asia/Calcutta).**
 
 AgentForge is a **pre-testnet, neutral agent-work marketplace**. It is not a
 public-ready service, an official FLOP client, a fleet controller or a real-value
@@ -183,18 +183,46 @@ Implemented in this review revision:
   14 new, 0 modified); 23 OpenAPI paths (7 packaged schemas); Alembic head
   `b0c9d8e7f6a5` (server untouched).**
 
-**Current ground-truth baseline (supersedes the dated PR/CI snapshot below):**
-`pytest` → **416 passed, 3 skipped**; `scripts/check_contracts.py` →
-`SCHEMAS_OK: 7`, `OPENAPI_MATCH: 23 paths`, `MIGRATION_HEAD_MATCH: b0c9d8e7f6a5`.
-The PR numbers, branch names and commit SHAs in the "Review publication" section
-below are a historical handoff record and are not the current session's head.
+- Phase 2.5 chain-agnostic settlement-attempt state machine: an additive migration
+  creates immutable intent, fenced attempt and append-only transition-journal
+  tables. Trusted in-process producers enqueue transactionally; a dormant worker
+  closes SQL sessions before invoking separate submission/receipt-verification
+  ports. It dispatches at most once, reconciles ambiguous outcomes without
+  resubmission, checks exact intent/party/amount/finality commitments, follows
+  verified replacements without another send and continues observing finalized
+  attempts for reorgs. Database constraints enforce economic-slot and active-
+  attempt exclusivity. No concrete rail, signer, verifier, provider enablement,
+  deployment or mock-to-external integration ships. Existing mock settlement,
+  HTTP/signing contracts, SDK and publishing worker are unchanged. See
+  [settlement attempts](SETTLEMENT_ATTEMPTS.md).
+
+**Current measured baseline — Phase 2.5:** full default suite → **489 passed,
+3 skipped** (417 pre-change + 72 new, **0 existing tests modified**); the new
+suite plus PostgreSQL-selected audit suites → **267 passed, 0 skipped** on
+local disposable PostgreSQL 16.2. Both installed wheels passed outside source
+import paths. `scripts/check_contracts.py` → `SCHEMAS_OK: 7`,
+`OPENAPI_MATCH: 23 paths`, `MIGRATION_HEAD_MATCH: c1d2e3f4a5b6`.
+The public contract files are byte-identical to the post-merge main baseline.
+These are implementation-side results, not independent approval or deployment
+readiness; maintained-image CI is a separate gate.
+
+The Phase 2.4 paragraph's **416** was an earlier review snapshot: a fresh run on
+post-merge `38eda8073439b3dd5b31843d111afbc3c7867a38` measured **417 passed,
+3 skipped** before this phase. That snapshot is retained as historical evidence,
+not used as the current baseline.
+
+**Current GitHub baseline:** live fetch and PR lookup confirmed PR #14 merged
+on 2026-10-08 at `38eda8073439b3dd5b31843d111afbc3c7867a38`; `origin/main`
+and this session's starting HEAD matched. Implementation remains on
+`arena/9ddbb84c-agentforge`, targeting `main` for separate audit and human-only
+merge. The PR #4–#6 snapshots below are historical, not this phase's publication.
 
 See [verification and audit findings](AUDIT_VERIFICATION.md) for exact test counts,
 commands, dependency evidence and limitations. Technical controls live in
 [security remediation](SECURITY_REMEDIATION.md),
 [accounting remediation](ACCOUNTING_REMEDIATION.md) and [event outbox](EVENT_OUTBOX.md).
 
-## Review publication
+## Historical review publication
 
 The maintainer authorized committing and pushing the completed patch to existing
 [PR #5](https://github.com/CryptoExplor/agentforge/pull/5) for local-agent review.

@@ -1,13 +1,26 @@
 # AgentForge pre-testnet MVP release notes
 
-## Unreleased — roadmap Phases 1.1–2.4
+## Unreleased — roadmap Phases 1.1–2.5
 
 Review-branch changes layered on top of the 2026-09-18 follow-up below; not a
 release or deployment announcement. Current verification is in
-[PROJECT_STATUS.md](PROJECT_STATUS.md) and [AUDIT_VERIFICATION.md](AUDIT_VERIFICATION.md):
-**416 passed, 3 skipped; 23 OpenAPI paths; 7 schemas; Alembic head `b0c9d8e7f6a5`**.
+[PROJECT_STATUS.md](PROJECT_STATUS.md) and [AUDIT_VERIFICATION.md](AUDIT_VERIFICATION.md).
 
 ### Added
+
+- **Phase 2.5 — dormant chain-agnostic settlement attempts**: transactional
+  immutable intents with key/content binding and per-task hold/terminal
+  exclusivity; fenced leased workers close SQL sessions before invoking separate
+  submission and receipt-verification ports. Crash/timeout ambiguity is reconciled
+  by intent rather than resubmitted. Verified replacements create numbered
+  successors without sending; finalized attempts remain observed for reorgs.
+  Allocation conservation, finality/receipt commitment checks and append-only
+  transition history are covered on both database dialects. An additive migration
+  creates the queue/history; no existing mock task is enqueued. The public HTTP
+  contract, signing, mock payouts and provider enablement policy remain unchanged.
+  No concrete RPC, signer, verifier or chain adapter ships. See
+  [settlement attempts](SETTLEMENT_ATTEMPTS.md), especially activation, manual
+  recovery and destructive schema-downgrade boundaries.
 
 - **Phase 2.4 — unified operator CLI `agentforge-cli`**: a new
   `agentforge_cli` package beside the SDK mechanizes the one-off operator

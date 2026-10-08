@@ -1,10 +1,123 @@
 # AgentForge audit and verification record
 
-**Canonical evidence record — 2026-09-23 (Asia/Calcutta).**
+**Canonical evidence record — updated 2026-10-09 (Asia/Calcutta).**
 Implementation-side source review and local verification of the review revision. **Not an independent audit, merge approval or production certification.**
 For the actual local/remote branch and PR snapshot, see
 [PROJECT_STATUS.md](PROJECT_STATUS.md). Reviewers must fetch the published PR
 head and record its SHA; historical CI at `bd6bf59` does not cover the new patch.
+
+## Phase 2.5 — current implementation-side verification
+
+Scope: dormant chain-agnostic settlement commands and attempt reconciliation,
+not a chain adapter or external provider. Architecture, state transitions,
+trusted-port assumptions, activation and rollback boundaries are in
+[settlement attempts](SETTLEMENT_ATTEMPTS.md). Python 3.11, Linux, disposable data.
+
+Before editing, `git fetch origin`, `gh pr view 14` and `git log origin/main`
+confirmed PR #14 merged at `38eda8073439b3dd5b31843d111afbc3c7867a38` and the
+assigned branch started there. The fresh default suite measured **417 passed,
+3 skipped**, not the older checked-in 416 snapshot. Contracts at that baseline
+were 7 schemas / 23 paths / migration `b0c9d8e7f6a5`.
+
+| Command/check | Measured result |
+|---|---|
+| `.venv/bin/python -m pytest -q` | **489 passed, 3 skipped**, 1 Starlette/httpx deprecation warning, 94.69s |
+| `.venv/bin/python -m pytest -q tests/test_settlement_attempts.py` | **72 passed**, 1 warning, 14.17s |
+| PostgreSQL runner below: new suite + existing CI-selected audit suites | **267 passed, 0 skipped**, 1 warning, 75.00s; PostgreSQL 16.2, Unix socket only; **0 leftover test schemas**; server stopped afterwards |
+| `.venv/bin/python scripts/check_contracts.py` | `SCHEMAS_OK: 7; packaged resources match`, `OPENAPI_MATCH: 23 paths`, `MIGRATION_HEAD_MATCH: c1d2e3f4a5b6` |
+| `.venv/bin/python -m compileall -q server sdk tests examples protocol migrations scripts` | Exit 0 |
+| `.venv/bin/pip check` | `No broken requirements found.` |
+| Migration regression in the new suite, on both database dialects | Upgrade head; live HTTP task/funding + enqueue; metadata/index parity; downgrade to prior head preserving task/escrow; stale-schema startup refusal; re-upgrade head |
+| Both non-editable wheels, commands below | `ROOT_WHEEL_SMOKE_OK`, `SDK_WHEEL_SMOKE_OK`; both `agentforge-cli --version` → `agentforge-cli 0.1.0`; both `--help` exit 0 |
+| Existing tests and public contracts | No existing test changed; no change to `protocol/`, SDK, routes, signing or mock settlement provider |
+
+### New coverage and trust limits
+
+Live app registration, signed task creation/funding and deterministic mock payout
+remain exercised, with **no HTTP-layer mocks**. Test-only injected producers prove
+that the actual task route commits or rolls back the intent, ledger and task
+together; production mock never enqueues. SQL concurrency tests exercise duplicate
+producer keys, conflicting terminal decisions, competing worker leases and stale
+completion fences (including expiry while acquiring a database lock).
+
+Fault tests cover rollback of a real journal insert, crash before/after a send,
+submission timeout, unknown and unavailable receipts, subsequent read-only
+recovery, finality depth, wrong intent/domain/asset/party/amount/fee/transaction
+binding, malformed observations, replacement cycles, independent successor
+verification, deep reorg observation and sanitized errors. Session/pool tracking
+asserts that both I/O ports run with **zero worker sessions/connections open**;
+a real HTTP read and independent SQL writer succeed inside each port callback.
+
+The two simulated ports are test-only, not external-network evidence. No concrete
+receipt verifier ships: the type boundary and core commitment checks do not
+replace future authentication of actual receipts. No ledger callback applies
+external finality, no retry/reset/force-finalize interface exists, and no chain
+provider can be selected. Ambiguous sends may remain unresolved indefinitely;
+this is the deliberate safety trade-off, not demonstrated liveness. No load,
+chaos-deployment, pilot or independent audit claim is made.
+
+### Local PostgreSQL reproduction and provenance
+
+The CI PostgreSQL job now includes the new suite against maintained
+`postgres:16-alpine`. Local evidence instead uses test-only `pgserver==0.1.4`
+(native PostgreSQL **16.2**, not a deployment recommendation or project dependency)
+with the existing per-test random-schema fixture. No TCP listener is opened.
+The ignored runner used for the recorded command is reproduced here:
+
+```python
+# Save as .venv/run_pg_tests.py after: .venv/bin/pip install pgserver==0.1.4
+from pathlib import Path
+import os
+import subprocess
+import sys
+import pgserver
+from sqlalchemy import create_engine, text
+
+folder = Path('.venv/pg-attempt-tests').resolve()
+folder.mkdir(mode=0o700, exist_ok=True)
+with pgserver.get_server(folder, cleanup_mode='stop') as server:
+    url = server.get_uri().replace('postgresql://', 'postgresql+psycopg://', 1)
+    engine = create_engine(url)
+    with engine.connect() as conn:
+        print('PostgreSQL:', conn.scalar(text('SHOW server_version')), flush=True)
+        print('Listen addresses:', repr(conn.scalar(text('SHOW listen_addresses'))), flush=True)
+    result = subprocess.run([sys.executable, '-m', 'pytest', '-q', *sys.argv[1:]],
+                            env={**os.environ, 'AGENTFORGE_TEST_POSTGRES_URL': url})
+    with engine.connect() as conn:
+        print('Remaining test schemas:', conn.scalar(text("SELECT count(*) FROM pg_namespace WHERE nspname LIKE 'agentforge_test_%'")), flush=True)
+    engine.dispose()
+print('PostgreSQL stopped', flush=True)
+raise SystemExit(result.returncode)
+```
+
+```sh
+.venv/bin/python .venv/run_pg_tests.py tests/test_settlement_attempts.py tests/test_outbox_regressions.py tests/test_public_exposure.py tests/test_accounting_regressions.py tests/test_runtime_hardening.py
+```
+
+### Installed-wheel reproduction
+
+Built both wheels, installed into **separate fresh non-editable environments**,
+then ran from `/home/user`, outside the checkout and with `PYTHONPATH` removed:
+
+```sh
+.venv/bin/pip wheel --no-deps --wheel-dir .venv/wheels . sdk/python
+python -m venv .venv/root-wheel
+python -m venv .venv/sdk-wheel
+.venv/root-wheel/bin/pip install .venv/wheels/agentforge-*.whl
+.venv/sdk-wheel/bin/pip install .venv/wheels/agentforge_sdk-*.whl
+cd /home/user
+env -u PYTHONPATH /home/user/agentforge/.venv/root-wheel/bin/python -c 'from agentforge_server.event_envelope import _VALIDATORS; assert len(_VALIDATORS) == 2; from agentforge_server.validators.result_schema import validate_result_schema; assert validate_result_schema({}, True) == (True, ""); from agentforge_server.admission import consume; from agentforge_server.settlement_attempts import IntentSpec, State; from agentforge_server.settlement_worker import SettlementWorker; from agentforge_server.models import Base; from sqlalchemy import create_engine, inspect; engine = create_engine("sqlite://"); Base.metadata.create_all(engine); assert set(("settlement_intents", "settlement_attempts", "settlement_attempt_events")) <= set(inspect(engine).get_table_names()); from agentforge_cli.main import main; import agentforge_server; assert "site-packages" in agentforge_server.__file__; print("ROOT_WHEEL_SMOKE_OK")'
+env -u PYTHONPATH /home/user/agentforge/.venv/sdk-wheel/bin/python -c 'from agentforge_sdk import AgentForgeClient, AgentIdentity; from agentforge_sdk.client import AgentIdentity as Legacy; assert AgentIdentity is Legacy; from agentforge_cli.main import main; from importlib.util import find_spec; assert find_spec("agentforge_server") is None; import agentforge_sdk; assert "site-packages" in agentforge_sdk.__file__; print("SDK_WHEEL_SMOKE_OK")'
+/home/user/agentforge/.venv/root-wheel/bin/agentforge-cli --version
+/home/user/agentforge/.venv/root-wheel/bin/agentforge-cli --help > /dev/null
+/home/user/agentforge/.venv/sdk-wheel/bin/agentforge-cli --version
+/home/user/agentforge/.venv/sdk-wheel/bin/agentforge-cli --help > /dev/null
+```
+
+CI now also builds/smokes the standalone SDK wheel (previously only the root
+wheel), checks the new installed server modules and runs the new suite in its
+PostgreSQL job. Local runs above do not substitute for the maintained-image CI
+or the independent auditor. Earlier sections below are historical evidence.
 
 ## Scope reviewed
 
@@ -241,8 +354,8 @@ Note: the migration head is unchanged from Phase 1.4 — the decomposition touch
 only code layout, not the schema. Earlier rows in this file that report 254/267/367
 passing tests, 22 OpenAPI paths, or Alembic heads `e7f8a9b0c1d2` / `c4d5e6f7a8b9`
 are **superseded historical evidence** from the phase they were captured in; the
-current ground-truth baseline is the Phase 2.1 section below
-(388 / 23 paths / `b0c9d8e7f6a5`).
+Phase 2.1 section below is also historical; the current measured baseline is
+the Phase 2.5 section above.
 
 This is implementation-side evidence, not independent review or merge approval.
 

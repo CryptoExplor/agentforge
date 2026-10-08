@@ -24,9 +24,20 @@ jobs:
           /tmp/agentforge-wheel/bin/pip install dist/*.whl
           cd /tmp
           /tmp/agentforge-wheel/bin/python -c 'from agentforge_server.event_envelope import _VALIDATORS; assert len(_VALIDATORS) == 2; from agentforge_server.validators.result_schema import validate_result_schema; assert validate_result_schema({}, True) == (True, ""); from agentforge_server.admission import consume'
+          /tmp/agentforge-wheel/bin/python -c 'from agentforge_server.settlement_attempts import IntentSpec; from agentforge_server.settlement_worker import SettlementWorker'
           /tmp/agentforge-wheel/bin/python -c 'from agentforge_cli.main import build_parser, main; assert callable(main)'
           /tmp/agentforge-wheel/bin/agentforge-cli --version
           /tmp/agentforge-wheel/bin/agentforge-cli --help > /dev/null
+
+      - name: Build standalone SDK wheel and smoke test outside checkout
+        run: |
+          pip wheel --no-deps --wheel-dir dist/sdk sdk/python
+          python -m venv /tmp/agentforge-sdk-wheel
+          /tmp/agentforge-sdk-wheel/bin/pip install dist/sdk/*.whl
+          cd /tmp
+          /tmp/agentforge-sdk-wheel/bin/python -c 'from agentforge_sdk import AgentForgeClient, AgentIdentity; from agentforge_cli.main import main; from importlib.util import find_spec; assert find_spec("agentforge_server") is None'
+          /tmp/agentforge-sdk-wheel/bin/agentforge-cli --version
+          /tmp/agentforge-sdk-wheel/bin/agentforge-cli --help > /dev/null
 
   postgres-audit-regressions:
     runs-on: ubuntu-latest
@@ -53,7 +64,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e '.[dev,postgres]'
-      - run: pytest -q tests/test_outbox_regressions.py tests/test_public_exposure.py tests/test_accounting_regressions.py tests/test_runtime_hardening.py
+      - run: pytest -q tests/test_outbox_regressions.py tests/test_public_exposure.py tests/test_accounting_regressions.py tests/test_runtime_hardening.py tests/test_settlement_attempts.py
 
   dependency-audit:
     runs-on: ubuntu-latest
