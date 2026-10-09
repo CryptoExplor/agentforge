@@ -10,6 +10,11 @@ the marketplace database transaction, so putting RPC calls in those methods
 would hold SQL locks across unbounded network I/O and create dual-write failure
 modes.
 
+The dormant chain-agnostic intent/attempt engine is described in
+[settlement attempts](SETTLEMENT_ATTEMPTS.md). It has no concrete submitter,
+receipt verifier, provider registration or deployment service. Its implementation
+is not evidence that any external interface or enabling gate has passed.
+
 ## Evidence required before implementation
 
 1. **Official interface:** canonical testnet documentation, chain ID/genesis,

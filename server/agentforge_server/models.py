@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, JSON, String, UniqueConstraint, text
+from sqlalchemy import Boolean, CheckConstraint, Float, ForeignKey, Index, Integer, JSON, String, UniqueConstraint, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -353,3 +353,78 @@ class RequestQuota(Base):
     bucket: Mapped[str] = mapped_column(String(80), primary_key=True)
     window: Mapped[int] = mapped_column(Integer, primary_key=True)
     count: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class SettlementIntent(Base):
+    """Immutable, trusted-producer command; also the transactional work outbox.
+
+    One hold and one terminal allocation per task, independent of caller keys.
+    No adapter is enabled by creating these tables. See settlement_attempts.py.
+    """
+    __tablename__ = "settlement_intents"
+    __table_args__ = (
+        UniqueConstraint("task_id", "slot", name="uq_settlement_intent_slot"),
+        CheckConstraint("slot IN ('hold', 'terminal')", name="ck_settlement_intent_slot"),
+        Index("ix_settlement_intent_target", "target"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    task_id: Mapped[str] = mapped_column(ForeignKey("tasks.id"), nullable=False)
+    slot: Mapped[str] = mapped_column(String(16), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(160), unique=True, nullable=False)
+    target: Mapped[str] = mapped_column(String(200), nullable=False)
+    canonical_intent: Mapped[str] = mapped_column(String(8000), nullable=False)
+    intent_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[float] = mapped_column(Float, nullable=False)
+
+
+class SettlementAttempt(Base):
+    """Fenced worker state. Replacement creates a successor, not a new intent."""
+    __tablename__ = "settlement_attempts"
+    __table_args__ = (
+        UniqueConstraint("intent_id", "number", name="uq_settlement_attempt_number"),
+        UniqueConstraint("intent_id", "transaction_ref", name="uq_settlement_attempt_transaction"),
+        Index("ix_settlement_attempt_due", "status", "next_attempt_at"),
+        Index("uq_settlement_active_attempt", "intent_id", unique=True,
+              sqlite_where=text("status NOT IN ('FAILED', 'REPLACED')"),
+              postgresql_where=text("status NOT IN ('FAILED', 'REPLACED')")),
+        CheckConstraint("status IN ('PENDING', 'SUBMITTED', 'CONFIRMED', 'FINALIZED', "
+                        "'FAILED', 'REPLACED', 'REORGED', 'MANUAL_REVIEW')", name="ck_settlement_attempt_state"),
+        CheckConstraint("number > 0 AND verification_attempts >= 0 AND finality_depth >= 0",
+                        name="ck_settlement_attempt_counters"),
+        CheckConstraint("(lease_owner IS NULL AND lease_expires_at IS NULL) OR "
+                        "(lease_owner IS NOT NULL AND lease_expires_at IS NOT NULL)",
+                        name="ck_settlement_attempt_lease"),
+    )
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    intent_id: Mapped[str] = mapped_column(ForeignKey("settlement_intents.id"), nullable=False)
+    number: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    transaction_ref: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Written and committed BEFORE invoking the submitter. Never cleared.
+    submission_started_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lease_owner: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    lease_expires_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    next_attempt_at: Mapped[float] = mapped_column(Float, nullable=False)
+    verification_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    block_ref: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    finality_depth: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_error: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    created_at: Mapped[float] = mapped_column(Float, nullable=False)
+    updated_at: Mapped[float] = mapped_column(Float, nullable=False)
+
+
+class SettlementAttemptEvent(Base):
+    """Append-only local transition journal; no raw receipts or exception text."""
+    __tablename__ = "settlement_attempt_events"
+    __table_args__ = (Index("ix_settlement_attempt_event", "attempt_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    attempt_id: Mapped[str] = mapped_column(ForeignKey("settlement_attempts.id"), nullable=False)
+    kind: Mapped[str] = mapped_column(String(40), nullable=False)
+    from_status: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    to_status: Mapped[str] = mapped_column(String(24), nullable=False)
+    # Only bounded identifiers/commitments and fixed error codes, never payloads.
+    details: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[float] = mapped_column(Float, nullable=False)

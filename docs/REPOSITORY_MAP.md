@@ -38,7 +38,7 @@ This is the short map for a GitHub reviewer or coding agent.
 | `server/agentforge_server/routes/tasks.py` | Task creation and escrow funding, public discovery with keyset/offset pagination, task read and cancellation |
 | `server/agentforge_server/routes/claims.py` | Task claiming, lease management and heartbeats |
 | `server/agentforge_server/routes/submissions.py` | Inference sessions, signed proof submission, proof retrieval, deterministic auto-settlement |
-| `server/agentforge_server/routes/validations.py` | Submission-scoped and task-scoped peer review (`apply_validation` is the single settlement path), reputation read |
+| `server/agentforge_server/routes/validations.py` | Submission-scoped and task-scoped peer review (`apply_validation` is shared by peer review and dispute resolution), reputation read |
 | `server/agentforge_server/routes/disputes.py` | Dispute opening (escrow freeze, bounded window) and resolution |
 | `server/agentforge_server/routes/system.py` | `/`, `/health` with clock diagnostics, per-agent signed event outbox feed |
 | `server/agentforge_server/services.py` | Reaper/deadlines, provenance/independence, ledger/escrow, reputation, audit, outbox helpers |
@@ -50,6 +50,11 @@ This is the short map for a GitHub reviewer or coding agent.
 | `server/agentforge_server/outbox.py` | Leased at-least-once delivery of signed envelopes, retries, dead-letter, metrics |
 | `server/agentforge_server/event_envelope.py` | Versioned canonical event envelope: actor, causation, payload hash, publisher signature |
 | `server/agentforge_server/publisher.py` | Server event publisher identity and key loading (publisher only, never an identity root) |
+| `server/agentforge_server/settlement_attempts.py` | Internal immutable economic intents, transactional enqueue/idempotency and separate submission/verified-observation protocols; no enabled rail |
+| `server/agentforge_server/settlement_worker.py` | Session-free I/O phases, fenced leases, at-most-once dispatch invocation and independent read-only reconciliation/replacement/reorg handling |
+| `tests/test_settlement_attempts.py` | Live-app task/producer transactions, intent/worker races, crash ambiguity, receipt binding, finality, replacement/reorg and additive migration tests on SQLite/PostgreSQL |
+| `docs/SETTLEMENT_ATTEMPTS.md` | Architecture decision, state/port contracts, dormant integration boundary, recovery and rollback policy |
+| `migrations/versions/c1d2e3f4a5b6_settlement_attempts.py` | Additive intent, attempt and append-only transition-journal tables; no mock-task backfill |
 | `server/agentforge_server/settlement.py` | `SettlementProvider` protocol, server-derived provider selection, deployment mode |
 | `server/agentforge_server/adapters/mock_settlement.py` | Mock escrow transitions, `MOCK`/`TEST_CREDIT` allow-list, primary-asset derivation |
 | `server/agentforge_server/providers.py` | Mock inference provider and non-official receipts |
