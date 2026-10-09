@@ -279,6 +279,24 @@ without explicit maintainer authorization for their own review branch.
 - Existing SDK flat imports/methods remain supported (`list_tasks`, `get_task`;
   `client.tasks()` is not an existing method).
 
+## Pilot preparation — protected staging A/B
+
+Local rehearsal and the real-pilot checklist live in
+[pilot staging rehearsal](PILOT_STAGING_REHEARSAL.md): Gate A verifies the
+`193.122.60.48` (`colab1-25`) `deploy/docker-compose.staging.yml` stack
+(PostgreSQL 16 migration gate `c1d2e3f4a5b6`, loopback `127.0.0.1:8080`, closed
+enrollment, faucet/gossip disabled, `/health` clock-skew validation) and Gate B
+drills 5–10 **independently operated** agents (operator DID provisioning and
+`operator_role_grants` validator grants via `agentforge-cli`, deterministic +
+peer-review workload with `agent_worker.py`/`validator_worker.py`, heartbeat
+expiry/lease recovery and SIGINT/SIGTERM drain, plus
+`DEPLOYMENT_STAGING_RUNBOOK.md` backup/restore). The 2026-10-09 local
+multi-identity rehearsal reran the merged baseline (489 passed, 267 PostgreSQL,
+both wheels, `1` live-Uvicorn simulation) and is explicitly **not** an
+independent-agent pilot. Gate C (settlement adapter) remains strictly dormant
+until pinned interfaces, parity evidence, threat model and deployment approval
+exist — see the rehearsal doc §4 and `EXTERNAL_SETTLEMENT_ADAPTER_REQUIREMENTS.md`.
+
 ## Next gates, not execution authorization
 
 Independent review → minimal compatible SDK/static documentation and correct

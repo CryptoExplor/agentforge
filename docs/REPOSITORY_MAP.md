@@ -104,6 +104,7 @@ This is the short map for a GitHub reviewer or coding agent.
 | `docker-compose.dev.yml` | Development-only SQLite/faucet composition |
 | `deploy/docker-compose.staging.yml` | Protected PostgreSQL 16 staging stack with migration gate, API/worker health ordering and internal backend network |
 | `deploy/env.staging.example` | Secret-free staging environment template; closed enrollment/faucet/publishing defaults |
+| `docs/PILOT_STAGING_REHEARSAL.md` | Protected-staging A/B checklist and local rehearsal log (Gate C dormant); links Gate A (`deploy/docker-compose.staging.yml`, `c1d2e3f4a5b6`, loopback/health) and Gate B (5–10 independent agents, `agentforge-cli`, `agent_worker`/`validator_worker`, backup/restore) |
 | `deploy/systemd/` | Host service and daily PostgreSQL backup timer templates for the Compose stack |
 | `.github/workflows/ci.yml` | GitHub test and compile workflow |
 | `.github/pull_request_template.md` | PR review checklist |
